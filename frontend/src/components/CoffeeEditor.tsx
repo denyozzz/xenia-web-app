@@ -1,3 +1,5 @@
+import { BeanDoses } from "./BeanDoses.js";
+import { RoasterInput } from "./RoasterInput.js";
 /**
  * CoffeeEditor — modal to create or edit a Coffee (Sorte) — §3.4b master data.
  * Master data only (name, roaster, origin, processing, roast level, brew type,
@@ -97,10 +99,32 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
   const [altMin, setAltMin] = useState(coffee?.altitudeMin != null ? String(coffee.altitudeMin) : "");
   const [altMax, setAltMax] = useState(coffee?.altitudeMax != null ? String(coffee.altitudeMax) : "");
   const [roastLevel, setRoastLevel] = useState<RoastLevel | "">(coffee?.roastLevel ?? "");
-  const [brewType, setBrewType] = useState<BrewType | "">(coffee?.brewType ?? "");
+  const [brewType, setBrewType] = useState<BrewType | "">(coffee ? (coffee.brewType ?? "") : "espresso");
   const [notes, setNotes] = useState(coffee?.notes ?? "");
   const [rating, setRating] = useState<BeanRating | "">(coffee?.rating ?? "");
   const [favourite, setFavourite] = useState(coffee?.favourite ?? false);
+  const [prefProfile, setPrefProfile] = useState<string>(coffee?.preferredProfileId != null ? String(coffee.preferredProfileId) : "");
+  const [profileOptions, setProfileOptions] = useState<{ id: number; name: string }[]>([]);
+  // Arabica-Anteil in %; Robusta ist der Rest auf 100. "" = nicht angegeben.
+  const [arabicaPct, setArabicaPct] = useState<string>(
+    coffee?.arabicaPct != null ? String(coffee.arabicaPct)
+      : coffee?.robustaPct != null ? String(100 - coffee.robustaPct) : "",
+  );
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/profiles")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: unknown) => {
+        if (!alive || !Array.isArray(d)) return;
+        setProfileOptions(
+          (d as { id?: unknown; name?: unknown }[])
+            .filter((x) => typeof x.id === "number" && typeof x.name === "string")
+            .map((x) => ({ id: x.id as number, name: x.name as string })),
+        );
+      })
+      .catch(() => { /* Auswahlfeld bleibt leer */ });
+    return () => { alive = false; };
+  }, []);
   const [flavorNotes, setFlavorNotes] = useState<string[]>(coffee?.flavorNotes ?? []);
   const [flavorInput, setFlavorInput] = useState("");
 
@@ -278,6 +302,9 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
         altitudeMax: altMax ? parseInt(altMax, 10) : null,
         roastLevel: (roastLevel as RoastLevel) || null,
         brewType: (brewType as BrewType) || null,
+        preferredProfileId: prefProfile === "" ? null : Number(prefProfile),
+        arabicaPct: arabicaPct === "" ? null : Number(arabicaPct),
+        robustaPct: arabicaPct === "" ? null : 100 - Number(arabicaPct),
         flavorNotes,
         notes: notes.trim() || null,
         rating: (rating as BeanRating) || null,
@@ -301,10 +328,14 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
       setSaving(false);
     }
   }, [name, roaster, country, region, farm, variety, processing, altMin, altMax,
-      roastLevel, brewType, flavorNotes, notes, rating, favourite, onSave, onClose, t,
+      roastLevel, brewType, flavorNotes, notes, rating, favourite, prefProfile, arabicaPct, onSave, onClose, t,
       isEdit, roastingOpen, rRoastDate, rBagSize, rPrice, rStatus, rActive]);
 
-  const ROAST_LEVELS: RoastLevel[] = ["light", "light-medium", "medium", "medium-dark", "dark"];
+  const ROAST_SEG = [
+    { value: "dark", label: t("beans.roastLevel.dark") },
+    { value: "medium", label: t("beans.roastLevel.medium") },
+    { value: "light", label: t("beans.roastLevel.light") },
+  ];
   const RATINGS: BeanRating[] = ["thumbs_up", "meh", "thumbs_down"];
   const BREW: { value: BrewType | ""; label: string }[] = [
     { value: "", label: t("beans.brewType.none") },
@@ -398,30 +429,53 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
           <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("beans.fields.namePlaceholder")} />
         </Field>
         <Field label={t("beans.fields.roaster")}>
-          <input style={inputStyle} value={roaster} onChange={(e) => setRoaster(e.target.value)} placeholder={t("beans.fields.roasterPlaceholder")} />
+          <RoasterInput style={inputStyle} value={roaster} onChange={setRoaster} placeholder={t("beans.fields.roasterPlaceholder")} />
         </Field>
 
         <div style={sectionStyle}>{t("beans.sections.origin")}</div>
+        <Field label={t("beans.fields.country")}><input style={inputStyle} value={country} onChange={(e) => setCountry(e.target.value)} /></Field>
         <TwoCol>
-          <Field label={t("beans.fields.country")}><input style={inputStyle} value={country} onChange={(e) => setCountry(e.target.value)} /></Field>
-          <Field label={t("beans.fields.region")}><input style={inputStyle} value={region} onChange={(e) => setRegion(e.target.value)} /></Field>
-          <Field label={t("beans.fields.farm")}><input style={inputStyle} value={farm} onChange={(e) => setFarm(e.target.value)} /></Field>
-          <Field label={t("beans.fields.variety")}><input style={inputStyle} value={variety} onChange={(e) => setVariety(e.target.value)} /></Field>
-        </TwoCol>
-        <Field label={t("beans.fields.processing")}>
-          <input style={inputStyle} value={processing} onChange={(e) => setProcessing(e.target.value)} placeholder={t("beans.fields.processingPlaceholder")} />
-        </Field>
-        <TwoCol>
-          <Field label={t("beans.fields.altitudeMin")}><input style={{ ...inputStyle, fontFamily: MONO }} type="number" value={altMin} onChange={(e) => setAltMin(e.target.value)} /></Field>
-          <Field label={t("beans.fields.altitudeMax")}><input style={{ ...inputStyle, fontFamily: MONO }} type="number" value={altMax} onChange={(e) => setAltMax(e.target.value)} /></Field>
+          <Field label="Arabica">
+            <select style={inputStyle} value={arabicaPct} onChange={(e) => setArabicaPct(e.target.value)}>
+              <option value="">—</option>
+              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((n) => (
+                <option key={n} value={String(n)}>{n} %</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Robusta">
+            <select
+              style={inputStyle}
+              value={arabicaPct === "" ? "" : String(100 - Number(arabicaPct))}
+              onChange={(e) => setArabicaPct(e.target.value === "" ? "" : String(100 - Number(e.target.value)))}
+            >
+              <option value="">—</option>
+              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((n) => (
+                <option key={n} value={String(n)}>{n} %</option>
+              ))}
+            </select>
+          </Field>
         </TwoCol>
 
         <div style={sectionStyle}>{t("beans.sections.roast")}</div>
-        <Field label={t("beans.fields.roastLevel")}>
-          <select style={inputStyle} value={roastLevel} onChange={(e) => setRoastLevel(e.target.value as RoastLevel | "")}>
-            <option value="">—</option>
-            {ROAST_LEVELS.map((rl) => <option key={rl} value={rl}>{t(`beans.roastLevel.${rl}`)}</option>)}
+        <Field label="Bevorzugtes Profil">
+          <select style={inputStyle} value={prefProfile} onChange={(e) => setPrefProfile(e.target.value)}>
+            <option value="">— keins —</option>
+            {prefProfile !== "" && !profileOptions.some((o) => String(o.id) === prefProfile) && (
+              <option value={prefProfile}>{"Profil #" + prefProfile}</option>
+            )}
+            {profileOptions.map((o) => (
+              <option key={o.id} value={String(o.id)}>{o.name}</option>
+            ))}
           </select>
+        </Field>
+        {coffee?.id != null && prefProfile !== "" && <BeanDoses coffeeId={coffee.id} profileId={Number(prefProfile)} roastLevel={roastLevel || null} />}
+        <Field label={t("beans.fields.roastLevel")}>
+          <Segmented
+            options={ROAST_SEG}
+            value={roastLevel === "light-medium" ? "light" : roastLevel === "medium-dark" ? "medium" : roastLevel}
+            onChange={(v: string) => setRoastLevel(v as RoastLevel | "")}
+          />
         </Field>
         <Field label={t("beans.fields.brewType")}>
           <Segmented options={BREW} value={brewType} onChange={setBrewType} />

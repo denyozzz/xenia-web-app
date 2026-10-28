@@ -104,6 +104,7 @@ export function ShotEditModal({ shot, onSave, onClose }: ShotEditModalProps) {
     channelingSeverity: shot.channelingSeverity ?? null,
     tasteTags: shot.tasteTags ?? [],
     grindNote: shot.grindNote,
+    doseNote: shot.doseNote ?? null,
     notes: shot.notes ?? "",
     vsPrev: shot.vsPrev ?? null,
     vsPrevShotId: shot.vsPrevShotId ?? null,

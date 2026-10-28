@@ -98,7 +98,7 @@ export const editor = {
     commands: "Befehle",
     variant: "Variante",
     ranWith: "Lief mit",
-    note: "Notiz",
+    note: "Röstgrad",
   },
   phase: {
     tablist: "Phasen",

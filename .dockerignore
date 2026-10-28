@@ -1,0 +1,20 @@
+# Nicht ins Docker-Image kopieren
+.git
+.github
+**/node_modules
+**/dist
+
+# Daten bleiben ausserhalb des Images (Volume ./data -> /data)
+data
+backend/data
+*.db
+*.db-*
+.env
+.env.*
+
+# Sicherungen und Patch-Reste
+**/*.bak
+**/*.bak[0-9]*
+**/*.orig
+xenia_patch*.py
+*.tar.gz

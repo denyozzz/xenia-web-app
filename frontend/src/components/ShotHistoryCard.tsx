@@ -29,7 +29,7 @@ const ellipsis: React.CSSProperties = {
 };
 
 /** Spaltenbreiten — der Spaltenkopf in History.tsx nutzt dieselben. */
-export const HISTORY_COLS = { grind: 120, rating: 96, channeling: 80, yield: 170, actions: 116 } as const;
+export const HISTORY_COLS = { grind: 100, rating: 84, channeling: 0, yield: 150, actions: 108 } as const;
 
 const actionBtn: React.CSSProperties = {
   width: 36,
@@ -140,7 +140,7 @@ export function ShotHistoryCard({ shot, basketName, variantName, onOpen, onEdit,
         display: "flex",
         flexWrap: mobile ? "wrap" : "nowrap",
         alignItems: "center",
-        columnGap: 12,
+        columnGap: 6,
         rowGap: 6,
         minHeight: 54,
         boxSizing: "border-box",
@@ -156,7 +156,7 @@ export function ShotHistoryCard({ shot, basketName, variantName, onOpen, onEdit,
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ minWidth: 0, fontSize: 14, fontWeight: 600, color: C.txt, ...ellipsis }}>{shot.profileName}</span>
           {variantName && <span style={{ flexShrink: 0, fontSize: 12.5, color: C.mut }}>{variantName}</span>}
-          {sizeTag !== null && (
+          {false && sizeTag !== null && (
             <span style={{ flexShrink: 0, maxWidth: 150, fontSize: 11, color: C.acc, border: `1px solid ${C.bdr2}`, borderRadius: 6, padding: "1px 6px", ...ellipsis }}>
               {sizeTag}
             </span>
@@ -196,6 +196,7 @@ export function ShotHistoryCard({ shot, basketName, variantName, onOpen, onEdit,
       </span>
 
       {/* Channeling */}
+      {HISTORY_COLS.channeling > 0 && (
       <span style={{ width: HISTORY_COLS.channeling, flexShrink: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: chan?.color ?? C.mut }}>
         {chan ? (
           <>
@@ -204,6 +205,7 @@ export function ShotHistoryCard({ shot, basketName, variantName, onOpen, onEdit,
           </>
         ) : "–"}
       </span>
+      )}
 
       {/* Ausbeute */}
       <div style={{ width: HISTORY_COLS.yield, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>

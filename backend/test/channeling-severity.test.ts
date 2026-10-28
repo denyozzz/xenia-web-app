@@ -62,6 +62,7 @@ function createSchema(): void {
         post_brew_stop_reason   TEXT CHECK(post_brew_stop_reason IN ('stable','timeout')),
         taste_tags              TEXT,
         grind_note              TEXT CHECK(grind_note IN ('finer','ok','coarser')),
+        dose_note               TEXT,
         acidity                 INTEGER CHECK(acidity BETWEEN 1 AND 5),
         bitterness              INTEGER CHECK(bitterness BETWEEN 1 AND 5),
         extraction_under        INTEGER NOT NULL DEFAULT 0,

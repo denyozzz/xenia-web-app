@@ -14,8 +14,10 @@
  */
 
 import { useEffect, useState } from "react";
-import type { Profile } from "@shared/types.js";
-import type { CoffeeNetwork, NetChanneling, NetRow, ProfileNetwork } from "@shared/network.js";
+import type { Profile, ShotListItem, ShotListResponse, XeniaScript } from "@shared/types.js";
+import { scriptToTimeline } from "@shared/script-timeline.js";
+import { stepsToTimeline } from "@shared/steps-curve.js";
+import type { CoffeeNetwork, NetRow, ProfileNetwork } from "@shared/network.js";
 import { halfStars } from "@shared/network.js";
 import { startVariants } from "@shared/profile-slots.js";
 import type { ShotFilters } from "../hooks/useShots.js";
@@ -31,14 +33,6 @@ const MONO = "'JetBrains Mono', monospace";
 
 const num = (v: number) => dec(String(Math.round(v * 10) / 10));
 const range = (a: number | null, b: number | null) => (a === null || b === null ? "–" : a === b ? num(a) : `${num(a)}–${num(b)}`);
-const day = (ms: number) => formatDay(ms, { style: "numeric" });
-
-const CHAN: Record<NetChanneling, { word: () => string; color: string }> = {
-  none: { word: () => t("profileList.network.chan.none"), color: C.mut },
-  light: { word: () => t("profileList.network.chan.light"), color: C.org },
-  strong: { word: () => t("profileList.network.chan.strong"), color: C.red },
-  yes: { word: () => t("profileList.network.chan.yes"), color: C.org },
-};
 
 /** Fuenf Punkte wie in der Historie, auf halbe gerundet, Anzahl der bewerteten in Klammern. */
 function Rating({ avg, rated, size = 9 }: { avg: number | null; rated: number; size?: number }) {
@@ -86,15 +80,24 @@ function useNetwork<T>(url: string | null): T | null {
 // Sorte: „Mit diesen Profilen“
 // ---------------------------------------------------------------------------
 
-export function CoffeeProfiles({ coffeeId, mobile, profiles, onStart, onOpenHistory, onOpenProfile }: {
+export function CoffeeProfiles({ coffeeId, mobile, profiles, onStart, onOpenHistory, onOpenProfile, onOpenShot }: {
   coffeeId: number;
   mobile: boolean;
   profiles: Profile[];
   onStart: (profile: Profile, variantId: number, basketId: number | null) => void;
   onOpenHistory: (filters: Partial<ShotFilters>) => void;
   onOpenProfile: (profileId: number) => void;
+  /** Patch 130: einen einzelnen Bezug im Verlauf oeffnen. */
+  onOpenShot?: (shotId: number) => void;
 }) {
   const { t } = useTranslation();
+  // Patch 130: aufgeklappte Zeilen ("Sieb|Muehle|Zeile").
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const toggleOpen = (k: string) => setOpen((prev) => {
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
   const { baskets } = useBaskets();
   const { grinders } = useGrinders();
   const data = useNetwork<CoffeeNetwork>(`/api/network/coffee/${coffeeId}`);
@@ -105,6 +108,19 @@ export function CoffeeProfiles({ coffeeId, mobile, profiles, onStart, onOpenHist
     n === "finer" ? t("shotRating.grindFiner") : n === "coarser" ? t("shotRating.grindCoarser") : n === "ok" ? t("shotRating.grindOk") : null;
   const total = data.groups.reduce((a, g) => a + g.n, 0);
   const profileCount = new Set(data.groups.flatMap((g) => g.rows.map((r) => r.key))).size;
+  // Patch 133: Gruppen nach Sieb - kleinste Nenndosis zuerst (Single, Double, Triple), ohne Sieb zuletzt.
+  const TYPE_ORDER: Record<string, number> = { single: 0, double: 1, he: 2 };
+  const sortedGroups = [...data.groups].sort((a, b) => {
+    const ba = a.basketId === null ? undefined : baskets.find((x) => x.id === a.basketId);
+    const bb = b.basketId === null ? undefined : baskets.find((x) => x.id === b.basketId);
+    if (!ba || !bb) return ba ? -1 : bb ? 1 : b.n - a.n;
+    const da = ba.nominalDoseG ?? Number.MAX_VALUE, db = bb.nominalDoseG ?? Number.MAX_VALUE;
+    if (da !== db) return da - db;
+    const ta = TYPE_ORDER[ba.type] ?? 9, tb = TYPE_ORDER[bb.type] ?? 9;
+    if (ta !== tb) return ta - tb;
+    if (ba.id !== bb.id) return ba.name.localeCompare(bb.name);
+    return b.n - a.n;
+  });
 
   /** Startknopf: die zuletzt mit diesem Sieb gelaufene Variante, sonst die mit diesem Vorgabe-Sieb. */
   const startButton = (p: Profile | undefined, variantId: number | null, basketId: number | null) => {
@@ -136,30 +152,41 @@ export function CoffeeProfiles({ coffeeId, mobile, profiles, onStart, onOpenHist
         <div style={{ fontSize: 13, color: C.mut }}>{t("profileList.network.noShotsCoffee")}</div>
       )}
 
-      {data.groups.map((g) => (
+      {sortedGroups.map((g) => (
         <div key={`${g.basketId}|${g.grinderId}`} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ minHeight: 18, display: "flex", alignItems: "center", gap: 14, padding: "0 14px", marginTop: 4 }}>
             <span style={{ ...groupHead, flex: 1 }}>{basketName(g.basketId)} · {grinderName(g.grinderId)}</span>
             {!mobile && <>
               <span style={{ ...colHead, width: 44 }}>{t("profileList.network.col.shots")}</span>
               <span style={{ ...colHead, width: 70 }}>{t("profileList.network.col.grind")}</span>
-              <span style={{ ...colHead, width: 104 }}>{t("profileList.network.col.rating")}</span>
               <span style={{ ...colHead, width: 126 }}>{t("profileList.network.col.last")}</span>
-              <span style={{ ...colHead, width: 80 }}>{t("profileList.network.col.channeling")}</span>
-              <span style={{ ...colHead, width: 44 }}>{t("profileList.network.col.date")}</span>
               <span style={{ width: 100 }} />
             </>}
           </div>
           {g.rows.map((r) => {
             const p = r.id !== null ? profiles.find((x) => x.id === r.id) : undefined;
-            const chan = r.last.channeling ? CHAN[r.last.channeling] : null;
             const note = noteWord(r.last.note);
+            const openKey = `${g.basketId}|${g.grinderId}|${r.key}`;
+            const isOpen = open.has(openKey);
             return (
-              <div key={r.key} style={{
+              <div key={r.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{
                 minHeight: 54, boxSizing: "border-box", display: "flex", flexWrap: mobile ? "wrap" : "nowrap", alignItems: "center", gap: 14, padding: "5px 14px",
                 background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 12,
               }}>
-                <div style={{ flex: mobile ? "1 1 100%" : 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                {r.id !== null ? (
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    title={isOpen ? "Einzelne Bezüge zuklappen" : "Einzelne Bezüge zeigen"}
+                    onClick={() => toggleOpen(openKey)}
+                    style={{
+                      width: 28, height: 28, flexShrink: 0, padding: 0, borderRadius: 7, border: `1px solid ${C.bdr2}`, background: C.sunken,
+                      color: C.txtS, cursor: "pointer", fontSize: 12, lineHeight: 1, fontFamily: "inherit",
+                    }}
+                  >{isOpen ? "▾" : "▸"}</button>
+                ) : <span style={{ width: 28, flexShrink: 0 }} />}
+                <div style={{ flex: mobile ? "1 1 calc(100% - 42px)" : 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                   {r.id !== null && p ? (
                     <button onClick={() => onOpenProfile(r.id!)} style={{ padding: 0, border: "none", background: "transparent", textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, color: C.txt, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {r.reference && <span style={{ color: C.acc }}>★ </span>}{r.label}
@@ -175,21 +202,148 @@ export function CoffeeProfiles({ coffeeId, mobile, profiles, onStart, onOpenHist
                   >{r.n}×</button>
                 </span>
                 <span style={{ width: 70, fontFamily: MONO, fontSize: 13, color: C.txt }}>{range(r.grindMin, r.grindMax)}</span>
-                <span style={{ width: 104 }}><Rating avg={r.ratingAvg} rated={r.rated} /></span>
                 {!mobile && <span style={{ width: 126, fontSize: 12.5, color: C.txtS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {r.last.grind !== null ? t("profileList.network.grindShort", { v: num(r.last.grind) }) : "–"}{note ? ` · ${note.toLowerCase()}` : ""}
                 </span>}
-                {!mobile && <span style={{ width: 80, display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: chan?.color ?? C.mut }}>
-                  {chan ? <><span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: chan.color }} />{chan.word()}</> : "–"}
-                </span>}
-                {!mobile && <span style={{ width: 44, fontFamily: MONO, fontSize: 11.5, color: C.mut }}>{day(r.last.at)}</span>}
                 {startButton(p, r.last.variantId, g.basketId)}
+              </div>
+              {isOpen && r.id !== null && (
+                <RowShots profileId={r.id} profile={p} coffeeId={coffeeId} basketId={g.basketId} grinderId={g.grinderId} mobile={mobile} onOpenShot={onOpenShot} />
+              )}
               </div>
             );
           })}
         </div>
       ))}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Patch 130: einzelne Bezuege einer Zeile in „Mit diesen Profilen“
+// ---------------------------------------------------------------------------
+
+function RowShots({ profileId, profile, coffeeId, basketId, grinderId, mobile, onOpenShot }: {
+  profileId: number;
+  profile?: Profile;
+  coffeeId: number;
+  basketId: number | null;
+  grinderId: number | null;
+  mobile: boolean;
+  onOpenShot?: (shotId: number) => void;
+}) {
+  // Patch 132: Bezugszeit mit Soll-Dauer, Bewertung nur wenn vorhanden, kein Channeling.
+  const [shots, setShots] = useState<ShotListItem[] | null>(null);
+  const [more, setMore] = useState(false);
+  const [scripts, setScripts] = useState<XeniaScript[]>([]);
+  useEffect(() => {
+    let off = false;
+    setShots(null);
+    fetch(`/api/shots?profile_id=${profileId}&coffee_id=${coffeeId}&limit=100&sort=date_desc`)
+      .then((r) => (r.ok ? (r.json() as Promise<ShotListResponse>) : null))
+      .then((d) => {
+        if (off) return;
+        if (!d) { setShots([]); return; }
+        // Sieb und Muehle hier vergleichen: der Filter der Liste kennt kein "ohne Sieb".
+        setShots(d.shots.filter((s) => (s.basketId ?? null) === basketId && (s.grinderId ?? null) === grinderId));
+        setMore(d.hasMore);
+      })
+      .catch(() => { if (!off) setShots([]); });
+    fetch("/api/scripts")
+      .then((r) => (r.ok ? (r.json() as Promise<unknown>) : null))
+      .then((d) => {
+        if (off || !d) return;
+        const o = d as { data?: unknown };
+        const list = Array.isArray(d) ? d : Array.isArray(o.data) ? o.data : [];
+        setScripts(list as XeniaScript[]);
+      })
+      .catch(() => { /* ohne Skripte: keine Soll-Dauer */ });
+    return () => { off = true; };
+  }, [profileId, coffeeId, basketId, grinderId]);
+
+  /** Soll-Dauer (s) der gelaufenen Variante nach dem heutigen Profil; null = unbekannt. */
+  const nominalS = (variantId: number | null | undefined): number | null => {
+    const vs = profile?.variants ?? [];
+    const v = vs.find((x) => x.id === variantId) ?? null;
+    if (!v) return null;
+    const owner = v.sameAsId !== null ? vs.find((x) => x.id === v.sameAsId) ?? v : v;
+    let ms = 0;
+    if (owner.scriptId !== null) {
+      const sc = scripts.find((x) => x.id === owner.scriptId);
+      ms = sc?.parsedCmds ? scriptToTimeline(sc.parsedCmds).totalMs : 0;
+    } else if (owner.brewSteps) {
+      ms = stepsToTimeline(owner.brewSteps.steps ?? [], v.yieldG).totalMs;
+    }
+    return ms > 0 ? ms / 1000 : null;
+  };
+
+  const box: React.CSSProperties = { marginLeft: mobile ? 0 : 42, border: `1px solid ${C.bdr}`, borderRadius: 10, overflow: "hidden", background: C.sunken };
+  if (shots === null) return <div style={{ ...box, padding: "8px 12px", fontSize: 12, color: C.mut }}>Lade Bezüge …</div>;
+  if (shots.length === 0) return <div style={{ ...box, padding: "8px 12px", fontSize: 12, color: C.mut }}>Keine einzelnen Bezüge gefunden.</div>;
+
+  const g = (v: number | null) => (v === null ? "–" : `${num(v)} g`);
+  const sec = (v: number | null) => (v === null ? "–" : `${Math.round(v)} s`);
+  const noteWord = (x: ShotListItem["grindNote"]) =>
+    x === "finer" ? t("shotRating.grindFiner") : x === "coarser" ? t("shotRating.grindCoarser") : x === "ok" ? t("shotRating.grindOk") : null;
+  // Patch 134: Dosis mit Dosis-Hinweis, wie beim Mahlgrad.
+  const doseWord = (x: ShotListItem["doseNote"]) =>
+    x === "less" ? t("shotRating.doseLess") : x === "more" ? t("shotRating.doseMore") : x === "ok" ? t("shotRating.doseOk") : null;
+  // Patch 135: Dosis → Ertrag zusammen, Dosis-Bewertung als eigene Spalte hinter dem Mahlgrad.
+  const W = { date: 118, dose: 124, time: 96, grind: 150, doseNote: 120 }; // Patch 136: Dosis mit Bewertung
+  const head: React.CSSProperties = { fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: C.mut, flexShrink: 0 };
+  return (
+    <div style={box}>
+      {!mobile && (
+        <div style={{ display: "flex", gap: 14, padding: "6px 12px 4px" }}>
+          <span style={{ ...head, width: W.date }}>Datum</span>
+          <span style={{ ...head, width: W.dose }}>Dosis → Ertrag</span>
+          <span style={{ ...head, width: W.time }} title="Wie lange der Bezug lief (in Klammern: Laufzeit laut Profil)">Zeit (Profil)</span>
+          <span style={{ ...head, width: W.grind }}>Mahlgrad</span>
+          <span style={{ ...head, width: W.doseNote }}>Dosis</span>
+          <span style={head}>Bewertung</span>
+        </div>
+      )}
+      {shots.map((s) => {
+        const note = noteWord(s.grindNote);
+        const actual = s.endedAt !== null ? (s.endedAt - s.startedAt) / 1000 : null;
+        // Patch 134: gelaufene Zeit, in Klammern die Laufzeit laut Profil.
+        const nominal = nominalS(s.variantId);
+        return (
+          <button
+            key={s.id}
+            type="button"
+            disabled={!onOpenShot}
+            onClick={() => onOpenShot?.(s.id)}
+            title={onOpenShot ? "Im Verlauf öffnen" : undefined}
+            style={{
+              width: "100%", display: "flex", flexWrap: mobile ? "wrap" : "nowrap", alignItems: "center", gap: mobile ? "4px 12px" : 14,
+              padding: "7px 12px", border: "none", borderTop: `1px solid ${C.bdr}`, background: "transparent",
+              textAlign: "left", cursor: onOpenShot ? "pointer" : "default", fontFamily: "inherit", color: C.txt,
+            }}
+          >
+            <span style={{ width: W.date, flexShrink: 0, fontFamily: MONO, fontSize: 12, color: C.txtS }}>{formatDay(s.startedAt, { style: "numeric", time: true })}</span>
+            <span style={{ width: W.dose, flexShrink: 0, fontFamily: MONO, fontSize: 12.5 }}>{g(s.doseG)} → {g(s.yieldActualG)}</span>
+            <span style={{ width: W.time, flexShrink: 0, fontFamily: MONO, fontSize: 12.5 }} title="Wie lange der Bezug lief (in Klammern: Laufzeit laut Profil)">
+              {sec(actual)}{nominal !== null && <span style={{ color: C.mut }}> ({sec(nominal)})</span>}
+            </span>
+            <span style={{ width: mobile ? "auto" : W.grind, flexShrink: 0, fontSize: 12.5, color: C.txtS, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {s.grindSetting !== null ? t("profileList.network.grindShort", { v: num(s.grindSetting) }) : "–"}{note ? ` · ${note.toLowerCase()}` : ""}
+            </span>
+            <span style={{ width: mobile ? "auto" : W.doseNote, flexShrink: 0, fontSize: 12.5, color: C.txtS, whiteSpace: "nowrap" }}>
+              {mobile ? "Dosis " : ""}{g(s.doseG)}{doseWord(s.doseNote ?? null) ? ` · ${doseWord(s.doseNote ?? null)!.toLowerCase()}` : ""}
+            </span>
+            {s.rating !== null && (
+              <span role="img" aria-label={`${s.rating} von 5`} style={{ display: "inline-flex", gap: 3 }}>
+                {[1, 2, 3, 4, 5].map((k) => (
+                  <span key={k} style={{ width: 8, height: 8, boxSizing: "border-box", borderRadius: "50%", border: `1px solid ${k <= s.rating! ? C.acc : C.bdr2}`, background: k <= s.rating! ? C.acc : "transparent" }} />
+                ))}
+              </span>
+            )}
+          </button>
+        );
+      })}
+      {more && <div style={{ padding: "6px 12px", fontSize: 11, color: C.mut, borderTop: `1px solid ${C.bdr}` }}>Gezeigt aus den letzten 100 Bezügen dieser Sorte mit diesem Profil.</div>}
+    </div>
   );
 }
 

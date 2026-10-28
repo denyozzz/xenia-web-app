@@ -33,8 +33,8 @@ export class SqliteProfileRepo implements ProfileRepo {
         `INSERT INTO profile
            (name, kind, trial, fit, archived, description, script_single, script_double,
             yield_single_g, yield_double_g, fav, sort_order, notes, target_temp_c,
-            brew_steps, brew_steps_double)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            brew_steps, brew_steps_double, beep_times)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         profile.name,
@@ -53,6 +53,7 @@ export class SqliteProfileRepo implements ProfileRepo {
         profile.targetTempC ?? null,
         profile.brewSteps ? JSON.stringify(profile.brewSteps) : null,
         profile.brewStepsDouble ? JSON.stringify(profile.brewStepsDouble) : null,
+        beepColumn(profile.beepTimes),
       ) as { lastInsertRowid: number };
     // Mit Varianten (Schnitt 3c) fuehren sie und leiten die Kurven-Spalten ab;
     // sonst entstehen sie aus den Spalten wie bisher.
@@ -132,6 +133,7 @@ export class SqliteProfileRepo implements ProfileRepo {
       isTrial:            "trial",
       fit:                "fit",
       isArchived:         "archived",
+      beepTimes:          "beep_times",
       scriptIdSingle:     "script_single",
       scriptIdDouble:     "script_double",
       yieldTargetSingleG: "yield_single_g",
@@ -157,6 +159,7 @@ export class SqliteProfileRepo implements ProfileRepo {
         if (k === "isTrial") return v ? 1 : 0;
         if (k === "fit") return fitColumn(v as ProfileFit[] | undefined);
         if (k === "isArchived") return v ? 1 : 0;
+        if (k === "beepTimes") return beepColumn(v as number[] | undefined);
         return (v as null | number | string) ?? null;
       });
 
@@ -222,6 +225,7 @@ interface RawProfileRow {
   fav: number;
   sort_order: number | null;
   notes: string | null;
+  beep_times?: string | null;
   target_temp_c: number | null;
   brew_steps: string | null;
   brew_steps_double: string | null;
@@ -244,6 +248,23 @@ function parseFit(raw: string | null): ProfileFit[] {
   }
 }
 
+/** Signale als Spalte: JSON-Liste ganzer Sekunden, sortiert, ohne Doppelte; leer = NULL. */
+function beepColumn(times: number[] | undefined | null): string | null {
+  if (!times) return null;
+  const clean = [...new Set(times.filter((n) => Number.isInteger(n) && n >= 0 && n <= 3600))].sort((a, b) => a - b);
+  return clean.length > 0 ? JSON.stringify(clean) : null;
+}
+
+function parseBeep(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n) && n >= 0 && n <= 3600) : [];
+  } catch {
+    return [];
+  }
+}
+
 function toProfile(row: RawProfileRow): Profile {
   return {
     id: row.id,
@@ -252,6 +273,7 @@ function toProfile(row: RawProfileRow): Profile {
     isTrial: row.trial === 1,
     fit: parseFit(row.fit),
     isArchived: row.archived === 1,
+    beepTimes: parseBeep(row.beep_times),
     description: row.description,
     scriptIdSingle: row.script_single, // null = flow-driven profile (brewSteps)
     scriptIdDouble: row.script_double,

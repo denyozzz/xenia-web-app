@@ -1,3 +1,4 @@
+import { variantDoseFor, variantIdFor } from "../db/variant-repo.js";
 /**
  * Shot routes — Phase 1 Step 5.
  *
@@ -245,6 +246,74 @@ export function registerShotRoutes(
   //
   // Must be before /:id so Fastify matches "preshot-defaults" statically.
   // ---------------------------------------------------------------------------
+  // GET /api/shots/coffee-doses?coffeeId= — Dosis je Variante dieser Sorte ({ variantId: g }).
+  app.get("/api/shots/coffee-doses", async (req) => {
+    const cid = Number((req.query as { coffeeId?: string }).coffeeId);
+    let all: Record<string, Record<string, number>> = {};
+    try { all = JSON.parse(settingsRepo?.get("bean_doses") ?? "{}") as Record<string, Record<string, number>>; } catch { all = {}; }
+    return { ok: true, doses: Number.isInteger(cid) ? (all[String(cid)] ?? {}) : {} };
+  });
+
+  // Ratio je Sorte (Bohne): { coffeeId: 2.2 } = 1:2,2. Ueberschreibt im Start-Dialog nur das Yield dieses Bezugs, nie das Profil.
+  const readRatios = (): Record<string, number> => {
+    try {
+      const o = JSON.parse(settingsRepo?.get("bean_ratios") ?? "{}") as Record<string, number>;
+      return o !== null && typeof o === "object" ? o : {};
+    } catch { return {}; }
+  };
+  app.get("/api/shots/coffee-ratio", async (req) => {
+    const cid = Number((req.query as { coffeeId?: string }).coffeeId);
+    const r = Number.isInteger(cid) ? readRatios()[String(cid)] : undefined;
+    return { ok: true, ratio: typeof r === "number" && Number.isFinite(r) && r > 0 ? r : null };
+  });
+  app.put("/api/shots/coffee-ratio", async (req, reply) => {
+    const q = (req.body ?? {}) as { coffeeId?: unknown; ratio?: unknown };
+    const cid = typeof q.coffeeId === "number" ? q.coffeeId : Number.NaN;
+    const del = q.ratio === null;
+    const ratio = typeof q.ratio === "number" ? q.ratio : Number.NaN;
+    if (!settingsRepo || !Number.isInteger(cid) || (!del && !(Number.isFinite(ratio) && ratio >= 1 && ratio <= 20))) {
+      reply.code(400); return { ok: false, error: "Ungültige Angaben." };
+    }
+    const all = readRatios();
+    if (del) delete all[String(cid)]; else all[String(cid)] = Math.round(ratio * 10) / 10;
+    settingsRepo.set("bean_ratios", JSON.stringify(all));
+    return { ok: true };
+  });
+
+  // PUT /api/shots/coffee-dose — Dosis einer Sorte fuer eine Variante setzen; doseG null loescht sie.
+  app.put("/api/shots/coffee-dose", async (req, reply) => {
+    const q = (req.body ?? {}) as { coffeeId?: unknown; variantId?: unknown; doseG?: unknown };
+    const cid = Number(q.coffeeId), vid = Number(q.variantId);
+    const del = q.doseG === null;
+    const dose = Number(q.doseG);
+    if (!settingsRepo || !Number.isInteger(cid) || !Number.isInteger(vid) || (!del && !(Number.isFinite(dose) && dose > 0 && dose <= 100))) {
+      reply.code(400); return { ok: false, error: "Ungültige Angaben." };
+    }
+    let all: Record<string, Record<string, number>> = {};
+    try { all = JSON.parse(settingsRepo.get("bean_doses") ?? "{}") as Record<string, Record<string, number>>; } catch { all = {}; }
+    const mine = { ...(all[String(cid)] ?? {}) };
+    if (del) delete mine[String(vid)]; else mine[String(vid)] = Math.round(dose * 10) / 10;
+    if (Object.keys(mine).length === 0) delete all[String(cid)]; else all[String(cid)] = mine;
+    settingsRepo.set("bean_doses", JSON.stringify(all));
+    return { ok: true };
+  });
+
+  // POST /api/shots/bean-dose — Dosis einer Bohne (Sorte) fuer eine Profil-Variante merken.
+  app.post("/api/shots/bean-dose", async (req, reply) => {
+    const b = (req.body ?? {}) as { beanId?: unknown; variantId?: unknown; doseG?: unknown };
+    const beanId = Number(b.beanId), variantId = Number(b.variantId), dose = Number(b.doseG);
+    if (!Number.isInteger(beanId) || !Number.isInteger(variantId) || !Number.isFinite(dose) || dose <= 0 || dose > 100) {
+      reply.code(400); return { ok: false, error: "Ungültige Angaben." };
+    }
+    const cid = beanRepo.findById(beanId)?.coffeeId ?? null;
+    if (cid === null || !settingsRepo) { reply.code(404); return { ok: false, error: "Bohne nicht gefunden." }; }
+    let all: Record<string, Record<string, number>> = {};
+    try { all = JSON.parse(settingsRepo.get("bean_doses") ?? "{}") as Record<string, Record<string, number>>; } catch { all = {}; }
+    all[String(cid)] = { ...(all[String(cid)] ?? {}), [String(variantId)]: Math.round(dose * 10) / 10 };
+    settingsRepo.set("bean_doses", JSON.stringify(all));
+    return { ok: true };
+  });
+
   app.get("/api/shots/preshot-defaults", async (req) => {
     const q = req.query as { beanId?: string; grinderId?: string; profileId?: string; basketId?: string };
     const explicitBeanId    = q.beanId    ? parseInt(q.beanId, 10)    : NaN;
@@ -323,6 +392,42 @@ export function registerShotRoutes(
       doseG = nominalDoseG;
     }
 
+    // Dosis aus dem Profil (Variante mit diesem Sieb) hat Vorrang vor letztem Bezug und Sieb-Nenndosis.
+    let plannedDoseG: number | null = null;
+    if (hasBasket && !Number.isNaN(profileId)) {
+      const profileDose = variantDoseFor(profileId, basketId);
+      if (profileDose !== null) { doseG = profileDose; plannedDoseG = profileDose; }
+      // Dosis der Bohne (Sorte) fuer diese Variante hat Vorrang vor der Profil-Dosis.
+      const vid = variantIdFor(profileId, basketId);
+      if (vid !== null && coffeeId !== null) {
+        try {
+          const all = JSON.parse(settingsRepo?.get("bean_doses") ?? "{}") as Record<string, Record<string, number>>;
+          const bd = all[String(coffeeId)]?.[String(vid)];
+          if (typeof bd === "number" && Number.isFinite(bd) && bd > 0) { doseG = bd; plannedDoseG = bd; }
+        } catch { /* kaputter Eintrag: ignorieren */ }
+      }
+    }
+
+    // Empfehlung aus den letzten bewerteten Bezuegen (gleiche Bohne + Muehle + Profil + Sieb).
+    const advice = hasBean && hasGrinder && !Number.isNaN(profileId) && hasBasket
+      ? shotRepo.grindAdvice({ beanId, grinderId, profileId, basketId })
+      : null;
+    // Dosis-Empfehlung: Dosis des letzten bewerteten Bezugs (Bohne + Sieb); weniger/mehr = minus/plus 1 g.
+    const lastDose = hasBean && hasBasket ? shotRepo.lastRatedDose({ beanId, basketId }) : null;
+    const doseAdvice = lastDose
+      ? {
+          doseG: Math.max(1, Math.round((lastDose.doseG + (lastDose.note === "more" ? 1 : lastDose.note === "less" ? -1 : 0)) * 10) / 10),
+          lastDoseG: lastDose.doseG,
+          note: lastDose.note,
+          startedAt: lastDose.startedAt,
+        }
+      : null;
+    // Notiz des letzten bewerteten gleichen Bezugs (gleiche Bohne + Profil + Sieb): als Erinnerung im Dialog,
+    // bis ein neuerer gleicher Bezug mit feiner/groeber/passt bewertet ist.
+    const lastNote = hasBean && !Number.isNaN(profileId) && hasBasket
+      ? shotRepo.lastRatedNote({ beanId, profileId, basketId, grinderId: hasGrinder ? grinderId : null })
+      : null;
+
     return {
       suggestedBeanId: hasBean ? beanId : null,
       suggestedGrinderId: hasGrinder ? grinderId : null,
@@ -335,7 +440,16 @@ export function registerShotRoutes(
       grindSetting,
       grinderRpm,
       doseG,
+      // Im Profil hinterlegte Dosis (null = keine): der Dialog nimmt sie vor der Sieb-Nenndosis.
+      plannedDoseG,
+      // Dosis des letzten Bezugs mit dieser Bohne + diesem Sieb (der Dialog bietet sie zum Uebernehmen an).
+      lastShotDoseG: hasBean && hasBasket ? (shotRepo.findLast({ beanId, basketId, withDose: true })?.doseG ?? null) : null,
       grindSource,
+      grindAdvice: advice,
+      lastNote,
+      doseAdvice,
+      // Ratio der Bohne (1:x): der Dialog rechnet daraus das Yield dieses Bezugs, das Profil bleibt unberuehrt.
+      beanRatio: coffeeId !== null && typeof readRatios()[String(coffeeId)] === "number" ? readRatios()[String(coffeeId)]! : null,
     };
   });
 
@@ -461,6 +575,9 @@ export function registerShotRoutes(
       (body.grindNote !== undefined &&
         body.grindNote !== null &&
         !["finer", "ok", "coarser"].includes(body.grindNote)) ||
+      (body.doseNote !== undefined &&
+        body.doseNote !== null &&
+        !["less", "ok", "more"].includes(body.doseNote)) ||
       (body.vsPrev !== undefined &&
         body.vsPrev !== null &&
         !["worse", "same", "better"].includes(body.vsPrev)) ||

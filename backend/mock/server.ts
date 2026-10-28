@@ -241,6 +241,43 @@ function startBrewSimulation(brew: ActiveBrew): void {
   }, BREW_TICK_MS);
 }
 
+// ---------------------------------------------------------------------------
+// Paddle-/Flow-Hold-Bezug (App-Antrieb): Pumpenleistung in % bestimmt den Fluss
+// ---------------------------------------------------------------------------
+
+const PADDLE_MIN_POWER = 20;
+const PADDLE_G_PER_S_PER_PCT = 0.045;
+let paddlePower = 0;
+let paddleMode = false;
+let paddleInterval: ReturnType<typeof setInterval> | null = null;
+
+function startPaddle(): void {
+  paddleMode = true;
+  phase = "brewing";
+  scaleWeightG = 0;
+  flowMeterMl = 0;
+  if (paddleInterval) clearInterval(paddleInterval);
+  paddleInterval = setInterval(() => {
+    if (phase !== "brewing") {
+      // anderswo beendet (Stopp, Auslaufen)
+      if (paddleInterval) clearInterval(paddleInterval);
+      paddleInterval = null; paddleMode = false; paddlePower = 0;
+      return;
+    }
+    if (paddlePower < PADDLE_MIN_POWER) {
+      if (paddleInterval) clearInterval(paddleInterval);
+      paddleInterval = null; paddleMode = false;
+      console.info("[mock] Paddle power below threshold — draining");
+      startDraining();
+      return;
+    }
+    const flow = paddlePower * PADDLE_G_PER_S_PER_PCT * (1 + (Math.random() - 0.5) * 0.06);
+    scaleWeightG += flow * (BREW_TICK_MS / 1000);
+    flowMeterMl = flow;
+    pumpPressure = Math.min(9, (paddlePower / 50) * 9) + (Math.random() - 0.5) * 0.2;
+  }, BREW_TICK_MS);
+}
+
 // Start physics tick
 setInterval(simulateTick, 250);
 
@@ -281,8 +318,10 @@ app.addContentTypeParser(
 // ---------------------------------------------------------------------------
 
 app.get("/api/v2/overview", async () => {
+  // Tasse weg: ausserhalb von Bezug und Auslaufen steht die Waage wieder auf 0.
+  if (phase !== "brewing" && phase !== "draining") scaleWeightG = 0;
   return {
-    MA_STATUS: maStatus(),
+    MA_STATUS: paddleMode && phase === "brewing" ? 5 : maStatus(),
     MA_EXTRACTIONS: 42,
     MA_OPERATING_HOURS: 120,
     MA_CLOCK: Math.floor(Date.now() / 1000),
@@ -365,7 +404,7 @@ app.post<{ Body: { FILE_NAME?: string } }>(
     }
     // FILE_NAME is zero-padded (e.g. "001"). Strip leading zeros for lookup.
     const id = parseInt(fileName, 10);
-    const script = SCRIPT_MAP.get(id);
+    const script = SCRIPT_MAP.get(id) ?? SCRIPT_MAP.get(1); // unbekannt: Standard-Espresso
     if (!script) {
       return reply.status(404).send({ error: `Script ${fileName} not found` });
     }
@@ -474,7 +513,7 @@ app.post<{ Body: { ID?: number } }>(
     if (id === undefined || id === null) {
       return reply.status(400).send({ error: "Missing ID" });
     }
-    const script = SCRIPT_MAP.get(id);
+    const script = SCRIPT_MAP.get(id) ?? SCRIPT_MAP.get(1); // unbekannt: Standard-Espresso
     if (!script) {
       return reply.status(404).send({ error: `Script ${id} not found` });
     }
@@ -526,6 +565,58 @@ app.post("/api/v2/scripts/script-stop", async (req, reply) => {
   startDraining();
   reply.status(200);
   return "";
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v2/scripts/stop und GET /api/v2/paddle/stop — wie die echte Xenia: Bezug beenden
+// ---------------------------------------------------------------------------
+
+app.get("/api/v2/scripts/stop", async (req, reply) => {
+  if (phase === "brewing") {
+    console.info(`[mock] scripts/stop received — weight=${scaleWeightG.toFixed(1)}g`);
+    stopBrewInterval();
+    startDraining();
+  }
+  reply.status(200);
+  return "";
+});
+
+app.get("/api/v2/paddle/stop", async (req, reply) => {
+  if (phase === "brewing") {
+    console.info(`[mock] paddle/stop received — weight=${scaleWeightG.toFixed(1)}g`);
+    stopBrewInterval();
+    startDraining();
+  }
+  reply.status(200);
+  return "";
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v2/paddle/pumppower — Flow-Hold-Antrieb der App (hier nur angenommen)
+// GET  /api/v2/status           — MA_STATUS passend zum Zustand
+// ---------------------------------------------------------------------------
+
+app.post<{ Body: { PU_SET_LEVEL_PW_CONTROL?: number } }>("/api/v2/paddle/pumppower", async (req, reply) => {
+  const n = Number(req.body?.PU_SET_LEVEL_PW_CONTROL ?? 0);
+  paddlePower = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+  if (paddlePower >= PADDLE_MIN_POWER && !paddleMode && (phase === "on" || phase === "eco")) {
+    console.info(`[mock] Paddle brew start — power ${paddlePower}%`);
+    startPaddle();
+  }
+  reply.status(200);
+  return "";
+});
+
+app.get("/api/v2/scale", async () => ({
+  DEVICE_NAME: ["MockScale"], ADDRESS: ["00:00:00:00:00:00"], SIGNAL: [-50],
+  connected_device: "MockScale", SC_AUTOCONNECT: 1, BLE: 0,
+}));
+
+app.get("/api/v2/switches", async () => ({}));
+
+app.get("/api/v2/status", async () => {
+  const code = phase === "off" ? 0 : phase === "on" ? 1 : phase === "eco" ? 2 : phase === "brewing" ? (paddleMode ? 5 : 3) : 4;
+  return { MA_STATUS: code };
 });
 
 // ---------------------------------------------------------------------------

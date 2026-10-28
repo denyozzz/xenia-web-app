@@ -89,6 +89,8 @@ interface VariantDraft {
   name: string;
   basketId: number | null;
   yieldG: number | null;
+  /** Dosis in g; null = Vorgabe aus dem Sieb. */
+  doseG?: number | null;
   /** „wie Variante X“: Schluessel von X, deren Kurve diese faehrt; null = eigene Kurve. */
   sameAs: number | null;
   /** Die eigene Kurve; bei „wie Variante X“ ohne Bedeutung. */
@@ -104,6 +106,8 @@ interface Draft {
   fit: ProfileFit[];
   tempC: number | null;
   notes: string;
+  /** Signale in Sekunden ab Start des Bezugs. */
+  beepTimes: number[];
   variants: VariantDraft[];
   /** Bezug oder Wartung — Wartung ohne Sieb und Yield, nur mit Skript-Kurven. */
   kind: ProfileKind;
@@ -135,17 +139,31 @@ function scriptCurve(scripts: XeniaScript[], orphans: XeniaScript[], id: number,
 const stepsCurve = (steps: BrewStep[]): CurveDraft => ({ ...NO_CURVE, steps, start: { cmds: null, steps } });
 
 function initDraft(p: Profile | null, scripts: XeniaScript[], baskets: Basket[], orphans: XeniaScript[]): Draft {
-  const base = { name: p?.name ?? "", fav: p?.isFavorite ?? false, trial: p?.isTrial ?? false, fit: p?.fit ?? [], tempC: p?.targetTempC ?? null, notes: p?.notes ?? "" };
+  const base = { name: p?.name ?? "", fav: p?.isFavorite ?? false, trial: p?.isTrial ?? false, fit: p?.fit ?? [], tempC: p?.targetTempC ?? null, notes: p?.notes ?? "", beepTimes: p?.beepTimes ?? [] };
   if (!p) {
     // Neues Profil: das erste Sieb (nach id) — einen Siebtyp fragt die App nicht mehr ab.
     const basket = [...baskets].sort((a, b) => a.id - b.id)[0];
+    // Eine Variante je Sieb mit Variantenname, nach Nenndosis (kleinstes zuerst); die weiteren fahren "wie" die erste.
+    const bySize = baskets
+      .filter((b) => (b.variantName ?? "") !== "")
+      .sort((a, b) => (a.nominalDoseG ?? 1e9) - (b.nominalDoseG ?? 1e9) || a.id - b.id)
+      .slice(0, MAX_VARIANTS);
+    if (bySize.length > 0) {
+      return {
+        ...base, kind: "brew",
+        variants: bySize.map((b, i): VariantDraft => ({
+          key: -(i + 1), id: null, name: b.variantName ?? "", basketId: b.id, yieldG: b.targetYieldG ?? null, doseG: b.nominalDoseG ?? null,
+          sameAs: i === 0 ? null : -1, curve: i === 0 ? stepsCurve(NEW_STEPS) : NO_CURVE,
+        })),
+      };
+    }
     return {
       ...base, kind: "brew",
-      variants: [{ key: -1, id: null, name: "Einzel", basketId: basket?.id ?? null, yieldG: null, sameAs: null, curve: stepsCurve(NEW_STEPS) }],
+      variants: [{ key: -1, id: null, name: "Einzel", basketId: basket?.id ?? null, yieldG: null, doseG: basket?.nominalDoseG ?? null, sameAs: null, curve: stepsCurve(NEW_STEPS) }],
     };
   }
   const variants = startVariants(p).map((v): VariantDraft => ({
-    key: v.id, id: v.id, name: v.name, basketId: v.defaultBasketId, yieldG: v.yieldG, sameAs: v.sameAsId,
+    key: v.id, id: v.id, name: v.name, basketId: v.defaultBasketId, yieldG: v.yieldG, doseG: v.doseG ?? baskets.find((b) => b.id === v.defaultBasketId)?.nominalDoseG ?? null, sameAs: v.sameAsId,
     curve: v.sameAsId !== null ? NO_CURVE : v.scriptId !== null ? scriptCurve(scripts, orphans, v.scriptId, v.phaseNames) : stepsCurve(v.brewSteps?.steps ?? []),
   }));
   return { ...base, variants, kind: p.kind };
@@ -331,7 +349,7 @@ function Segmented<T extends string>({ options, value, onPick, label, color }: {
 // Editor
 // ---------------------------------------------------------------------------
 
-type Tab = "phasen" | "befehle" | "variante" | "liefmit" | "notiz";
+type Tab = "phasen" | "befehle" | "variante" | "liefmit" | "notiz" | "timer";
 type Choice = "overwrite" | "new" | "keep" | "delete";
 
 interface VariantPlan {
@@ -582,7 +600,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
     const names = new Set(draft.variants.map((v) => v.name.trim().toLowerCase()));
     let n = draft.variants.length + 1;
     while (names.has(`variante ${n}`)) n++;
-    const v: VariantDraft = { key, id: null, name: `Variante ${n}`, basketId: av.basketId, yieldG: av.yieldG, sameAs: draft.variants[oi]!.key, curve: NO_CURVE };
+    const v: VariantDraft = { key, id: null, name: `Variante ${n}`, basketId: av.basketId, yieldG: av.yieldG, doseG: av.doseG ?? null, sameAs: draft.variants[oi]!.key, curve: NO_CURVE };
     commit({ ...draft, variants: [...draft.variants, v] });
     pick(draft.variants.length);
     setTab("variante");
@@ -781,7 +799,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
       }
       const index = new Map(draft.variants.map((v, i) => [v.key, i]));
       const variants = draft.variants.map((v): ProfileVariantInput => {
-        const base = { id: v.id, name: v.name.trim(), defaultBasketId: v.basketId, yieldG: v.yieldG };
+        const base = { id: v.id, name: v.name.trim(), defaultBasketId: v.basketId, yieldG: v.yieldG, doseG: v.doseG ?? null };
         if (v.sameAs !== null) return { ...base, scriptId: null, brewSteps: null, sameAs: index.get(v.sameAs)! };
         const scriptId = scriptOf.get(v.key) ?? null;
         if (scriptId === null) return { ...base, scriptId, brewSteps: { version: 1, steps: v.curve.steps ?? [] } };
@@ -799,6 +817,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
         fit: draft.fit,
         targetTempC: draft.tempC,
         notes: draft.notes.trim() ? draft.notes.trim() : null,
+        beepTimes: [...new Set(draft.beepTimes)].filter((n) => Number.isInteger(n) && n >= 0 && n <= 3600).sort((a, b) => a - b),
         // Die alten Kurven-Felder leitet das Backend aus den Varianten ab.
         scriptIdSingle: null,
         variants,
@@ -989,6 +1008,8 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
     <button onClick={addVariant} title={t("editor.header.addVariantTitle")} style={{ ...textBtn(false), borderStyle: "dashed" }}><Plus size={13} /> {t("editor.header.addVariant")}</button>
   );
   const yieldField = !maintenance && <YieldField value={yieldG} onChange={setYield} />;
+  const doseField = !maintenance && <DoseField value={av.doseG ?? null} onChange={(v) => commit(withVariant(draft, ai, { doseG: v }))} />;
+  const doseYield = !maintenance && <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", columnGap: 16, rowGap: 6 }}>{doseField}{yieldField}</span>;
 
   return (
     // Tablet: ein festes Fenster, nur der Reiter-Inhalt scrollt. Handy: eine normale
@@ -1014,7 +1035,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
       {mobile ? (
         <>
           {/* Drei Arten passen mit dem Yield nicht in eine Handy-Zeile — dann bricht der Yield um. */}
-          <div style={{ ...headRow, height: "auto", minHeight: 40, flexWrap: "wrap", rowGap: 6 }}>{kindPicker}<span style={{ flex: 1 }} />{yieldField}</div>
+          <div style={{ ...headRow, height: "auto", minHeight: 40, flexWrap: "wrap", rowGap: 6 }}>{kindPicker}<span style={{ flex: 1 }} />{doseYield}</div>
           {/* Reiter brechen um statt seitlich zu schieben — sonst lag die dritte Variante unsichtbar rechts. */}
           {(variantTabs || addVariantBtn) && <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>{variantTabs}{addVariantBtn}</div>}
         </>
@@ -1022,7 +1043,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
         <div style={headRow}>
           {kindPicker}{variantTabs}{addVariantBtn}
           <span style={{ flex: 1 }} />
-          {yieldField}
+          {doseYield}
         </div>
       )}
 
@@ -1094,7 +1115,7 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
 
       {/* Reiter */}
       <div role="tablist" aria-label={t("editor.tabs.aria")} style={{ display: "flex", gap: 4, height: 34, flexShrink: 0, borderBottom: `1px solid ${C.bdr}`, ...(mobile ? { overflowX: "auto" as const } : {}) }}>
-        {([["phasen", t("editor.tabs.phases")], ["befehle", t("editor.tabs.commands")], ["variante", t("editor.tabs.variant")], ...(profile && !maintenance ? [["liefmit", t("editor.tabs.ranWith")]] : []), ["notiz", t("editor.tabs.note")]] as [Tab, string][]).map(([k, l]) => (
+        {([["phasen", t("editor.tabs.phases")], ["befehle", t("editor.tabs.commands")], ["variante", t("editor.tabs.variant")], ...(profile && !maintenance ? [["liefmit", t("editor.tabs.ranWith")]] : []), ["notiz", t("editor.tabs.note")], ["timer", "Timer"]] as [Tab, string][]).map(([k, l]) => (
           <button
             key={k}
             role="tab"
@@ -1360,7 +1381,13 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
                   <select
                     value={av.basketId ?? ""}
                     aria-label={t("editor.variant.basket")}
-                    onChange={(e) => commit(withVariant(draft, ai, { basketId: e.target.value === "" ? null : Number(e.target.value) }))}
+                    onChange={(e) => {
+                      const nb = e.target.value === "" ? null : Number(e.target.value);
+                      const oldNom = baskets.find((b) => b.id === av.basketId)?.nominalDoseG ?? null;
+                      const newNom = baskets.find((b) => b.id === nb)?.nominalDoseG ?? null;
+                      const follow = av.doseG == null || av.doseG === oldNom;
+                      commit(withVariant(draft, ai, follow ? { basketId: nb, doseG: newNom } : { basketId: nb }));
+                    }}
                     style={selectStyle}
                   >
                     {av.basketId === null && <option value="">—</option>}
@@ -1412,6 +1439,54 @@ function EditorBody({ profile, profiles, scripts, scriptActions, onSaveProfile, 
             onOpenHistory={onOpenHistory && ((f) => { if (!dirty || window.confirm(t("editor.dialog.discard.title"))) onOpenHistory(f); })}
             onOpenCoffee={onOpenCoffee && ((id) => { if (!dirty || window.confirm(t("editor.dialog.discard.title"))) onOpenCoffee(id); })}
           />
+        )}
+
+        {tab === "timer" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <span style={fieldLabel}>Signal nach … Sekunden (ab Start des Bezugs)</span>
+            {draft.beepTimes.length === 0 && (
+              <div style={{ fontSize: 12.5, color: C.mut }}>Kein Timer eingestellt.</div>
+            )}
+            {draft.beepTimes.map((sec, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={3600}
+                  step={1}
+                  value={sec}
+                  aria-label={`Timer ${i + 1} in Sekunden`}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    const v = Number.isFinite(n) ? Math.max(0, Math.min(3600, n)) : 0;
+                    commit({ ...draft, beepTimes: draft.beepTimes.map((x, k) => (k === i ? v : x)) });
+                  }}
+                  style={{ width: 90, height: 38, boxSizing: "border-box", padding: "0 10px", borderRadius: 8, border: `1px solid ${C.bdr2}`, background: C.bg, color: C.txt, fontSize: 15, fontFamily: "inherit" }}
+                />
+                <span style={{ fontSize: 13, color: C.mut }}>s</span>
+                <button
+                  onClick={() => commit({ ...draft, beepTimes: draft.beepTimes.filter((_, k) => k !== i) })}
+                  aria-label={`Timer ${i + 1} löschen`}
+                  style={{ width: 38, height: 38, borderRadius: 8, border: `1px solid ${C.bdr2}`, background: "transparent", color: C.mut, fontSize: 15, cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {draft.beepTimes.length < 10 && (
+              <button
+                onClick={() => commit({ ...draft, beepTimes: [...draft.beepTimes, draft.beepTimes.length > 0 ? Math.min(3600, Math.max(...draft.beepTimes) + 10) : 25] })}
+                style={{ alignSelf: "flex-start", height: 38, padding: "0 14px", borderRadius: 8, border: `1px dashed ${C.bdr3}`, background: "transparent", color: C.acc, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                + Timer hinzufügen
+              </button>
+            )}
+            <div style={{ fontSize: 12, color: C.mut, lineHeight: 1.4 }}>
+              Das Tablet piept bei jeder Zeit einmal. Die Timer gelten für alle Varianten dieses Profils.
+              Der Ton geht erst, nachdem du einmal in die App getippt hast.
+            </div>
+          </div>
         )}
 
         {tab === "notiz" && (
@@ -1626,6 +1701,15 @@ function TempField({ value, onChange }: { value: number | null; onChange: (v: nu
   );
 }
 
+function DoseField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={fieldLabel}>Dosis</span>
+      <NumberStepperInline value={value} onChange={onChange} label="Dosis" />
+    </div>
+  );
+}
+
 function YieldField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1635,7 +1719,7 @@ function YieldField({ value, onChange }: { value: number | null; onChange: (v: n
   );
 }
 
-function NumberStepperInline({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+function NumberStepperInline({ value, onChange, label }: { value: number | null; onChange: (v: number | null) => void; label?: string }) {
   const [txt, setTxt] = useState(value === null ? "" : fmt(value));
   useEffect(() => { setTxt(value === null ? "" : fmt(value)); }, [value]);
   const btn: React.CSSProperties = { width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.bdr2}`, background: C.sunken, color: C.txtS, fontSize: 16, cursor: "pointer", fontFamily: "inherit" };
@@ -1645,12 +1729,12 @@ function NumberStepperInline({ value, onChange }: { value: number | null; onChan
   };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-      <button type="button" aria-label={t("editor.stepper.decrease", { label: t("editor.header.yield") })} onClick={() => set((value ?? 1) - 0.5)} style={btn}>−</button>
+      <button type="button" aria-label={t("editor.stepper.decrease", { label: (label ?? t("editor.header.yield")) })} onClick={() => set((value ?? 1) - 0.5)} style={btn}>−</button>
       <input
         value={txt}
         inputMode="decimal"
         placeholder="—"
-        aria-label={t("editor.header.yield")}
+        aria-label={(label ?? t("editor.header.yield"))}
         onChange={(e) => setTxt(e.target.value)}
         onBlur={() => {
           if (txt.trim() === "") { set(null); return; }
@@ -1661,7 +1745,7 @@ function NumberStepperInline({ value, onChange }: { value: number | null; onChan
         style={{ width: 54, height: 34, boxSizing: "border-box", textAlign: "center", borderRadius: 8, border: `1px solid ${C.bdr2}`, background: C.bg, color: C.txt, fontSize: 14, fontWeight: 600, ...MONO, outline: "none" }}
       />
       <span style={{ fontSize: 11, color: C.mut }}>g</span>
-      <button type="button" aria-label={t("editor.stepper.increase", { label: t("editor.header.yield") })} onClick={() => set((value ?? 0) + 0.5)} style={btn}>+</button>
+      <button type="button" aria-label={t("editor.stepper.increase", { label: (label ?? t("editor.header.yield")) })} onClick={() => set((value ?? 0) + 0.5)} style={btn}>+</button>
     </span>
   );
 }

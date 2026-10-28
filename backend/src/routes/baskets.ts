@@ -32,6 +32,23 @@ function cleanDose(v: unknown): number | null | undefined {
   return typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 40 ? Math.round(v * 10) / 10 : undefined;
 }
 
+/** Zielmenge in g: 0 < x ≤ 200 oder null. undefined = ungueltig. */
+function cleanYield(v: unknown): number | null | undefined {
+  if (v === null) return null;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 200 ? Math.round(v * 10) / 10 : undefined;
+}
+
+/** Variantenname: hoechstens 20 Zeichen; leer → null. undefined = ungueltig. */
+function cleanVariantName(v: unknown): string | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== "string") return undefined;
+  const n = v.trim();
+  if (n.length > 20) return undefined;
+  return n.length > 0 ? n : null;
+}
+
+const BAD_VARIANT_NAME = "Variantenname: höchstens 20 Zeichen.";
+const BAD_YIELD = "Zielmenge: eine Zahl über 0 bis 200 g.";
 const BAD_DESCRIPTION = "Beschreibung: höchstens 200 Zeichen.";
 const BAD_DOSE = "Nenndosis: eine Zahl über 0 bis 40 g.";
 
@@ -49,7 +66,12 @@ export function registerBasketRoutes(app: FastifyInstance, basketRepo: SqliteBas
     if (description === undefined) return reply.status(400).send({ error: BAD_DESCRIPTION });
     const nominalDoseG = body.nominalDoseG === undefined ? null : cleanDose(body.nominalDoseG);
     if (nominalDoseG === undefined) return reply.status(400).send({ error: BAD_DOSE });
-    const id = basketRepo.insert({ name, type: isType(body.type) ? body.type : undefined, description, nominalDoseG });
+    const targetYieldG = body.targetYieldG === undefined ? null : cleanYield(body.targetYieldG);
+    if (targetYieldG === undefined) return reply.status(400).send({ error: BAD_YIELD });
+    const variantName = body.variantName === undefined ? null : cleanVariantName(body.variantName);
+    if (variantName === undefined) return reply.status(400).send({ error: BAD_VARIANT_NAME });
+    if (variantName !== null && basketRepo.listAll().some((b) => b.variantName === variantName)) return reply.status(409).send({ error: `Variantenname „${variantName}“ ist schon vergeben.` });
+    const id = basketRepo.insert({ name, type: isType(body.type) ? body.type : undefined, description, nominalDoseG, targetYieldG, variantName });
     return reply.status(201).send({ id, name });
   });
 
@@ -78,6 +100,17 @@ export function registerBasketRoutes(app: FastifyInstance, basketRepo: SqliteBas
       const g = cleanDose(body.nominalDoseG);
       if (g === undefined) return reply.status(400).send({ error: BAD_DOSE });
       patch.nominalDoseG = g;
+    }
+    if (body.targetYieldG !== undefined) {
+      const y = cleanYield(body.targetYieldG);
+      if (y === undefined) return reply.status(400).send({ error: BAD_YIELD });
+      patch.targetYieldG = y;
+    }
+    if (body.variantName !== undefined) {
+      const vn = cleanVariantName(body.variantName);
+      if (vn === undefined) return reply.status(400).send({ error: BAD_VARIANT_NAME });
+      if (vn !== null && basketRepo.listAll().some((b) => b.id !== id && b.variantName === vn)) return reply.status(409).send({ error: `Variantenname „${vn}“ ist schon vergeben.` });
+      patch.variantName = vn;
     }
     basketRepo.update(id, patch);
     return { ok: true };

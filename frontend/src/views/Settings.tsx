@@ -1,3 +1,5 @@
+import { VirtualMachineSetting } from "../components/VirtualMachineSetting.js";
+import { SayingSettings } from "../components/SayingSettings.js";
 /**
  * Settings view — chart X-axis, brew-by-weight, and language.
  *
@@ -10,7 +12,7 @@
 import { useEffect, useRef, useState } from "react"; // useRef for debounceRefs
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Toggle } from "../components/Toggle.js";
-import { BackflushSettings } from "../components/BackflushSettings.js";
+import { CareReminderSettings } from "../components/CareReminderSettings.js";
 import { GrinderEditor } from "../components/GrinderEditor.js";
 import { useGrinders } from "../hooks/useGrinders.js";
 import { BasketEditor } from "../components/BasketEditor.js";
@@ -246,7 +248,7 @@ export function Settings({
   const [form, setForm] = useState<FormState | null>(null);
   const { grinders, create: createGrinder, update: updateGrinder, remove: removeGrinder } = useGrinders();
   const [grinderEditor, setGrinderEditor] = useState<Grinder | null | "new">(null);
-  const { baskets, create: createBasket, update: updateBasket, remove: removeBasket } = useBaskets();
+  const { baskets, refresh: refreshBaskets, update: updateBasket, remove: removeBasket } = useBaskets();
   const [basketEditor, setBasketEditor] = useState<Basket | null | "new">(null);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [saveStatuses, setSaveStatuses] = useState<Record<string, SaveStatus>>({});
@@ -492,6 +494,7 @@ export function Settings({
 
       {/* ---- Maschine ---- */}
       <SectionHeader title={t("settings.machine.title")} />
+      <VirtualMachineSetting />
 
       <Row
         label={t("settings.machine.address.label")}
@@ -879,7 +882,7 @@ export function Settings({
       </Row>
 
       {/* ---- Wartung / Rückspülen ---- */}
-      <BackflushSettings />
+      <CareReminderSettings />
 
       {/* ---- Mühlen ---- */}
       <SectionHeader title={t("settings.grinders.title")} />
@@ -973,6 +976,9 @@ export function Settings({
                 <span style={{ fontSize: 11, color: C.mut, marginLeft: 8, fontFamily: "'JetBrains Mono', monospace" }}>
                   {dec(String(sv.nominalDoseG))} g
                 </span>
+              )}
+              {sv.variantName && (
+                <span style={{ fontSize: 11, color: C.acc, marginLeft: 8 }}>→ {sv.variantName}</span>
               )}
             </div>
             {sv.description && (
@@ -1228,6 +1234,7 @@ export function Settings({
 
       {/* ---- Sprache ---- */}
       <SectionHeader title={t("settings.ui.title")} />
+      <SayingSettings />
 
       <Row
         label={t("settings.language.select.label")}
@@ -1340,9 +1347,36 @@ export function Settings({
       {basketEditor !== null && (
         <BasketEditor
           basket={basketEditor === "new" ? undefined : basketEditor}
-          onSave={async (data) => {
-            if (basketEditor === "new") await createBasket(data);
-            else await updateBasket(basketEditor.id, data);
+          onSave={async (data, variants) => {
+            let basketId: number;
+            if (basketEditor !== "new") {
+              await updateBasket(basketEditor.id, data);
+              basketId = basketEditor.id;
+            } else {
+              const res = await fetch("/api/baskets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+              const made = (await res.json().catch(() => ({}))) as { id?: number; error?: string };
+              if (!res.ok || made.id === undefined) throw new Error(made.error ?? `HTTP ${res.status}`);
+              basketId = made.id;
+            }
+            const notes: string[] = [];
+            const post = async (url: string, body: unknown) => {
+              const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+              const j = (await r.json().catch(() => ({}))) as { error?: string; kept?: Array<{ profileName: string; variantName: string; reason: string }> };
+              if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+              return j;
+            };
+            if (variants && variants.profileIds.length > 0) {
+              try { await post(`/api/baskets/${basketId}/variants`, { profileIds: variants.profileIds, likeName: variants.likeName }); }
+              catch (e) { notes.push(`Varianten anlegen fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`); }
+            }
+            if (variants?.removeIds && variants.removeIds.length > 0) {
+              try {
+                const j = await post(`/api/baskets/${basketId}/variants/remove`, { profileIds: variants.removeIds });
+                for (const k of j.kept ?? []) notes.push(`${k.profileName}: „${k.variantName}“ bleibt (${k.reason})`);
+              } catch (e) { notes.push(`Varianten entfernen fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`); }
+            }
+            await refreshBaskets();
+            if (notes.length > 0) window.alert(notes.join("\n"));
           }}
           onDelete={basketEditor !== "new" ? async () => { await removeBasket(basketEditor.id); } : undefined}
           onClose={() => setBasketEditor(null)}

@@ -61,7 +61,8 @@ export function RecentShotCard({ shot, blocked, onRepeat, compact = false }: Rec
   const [hover, setHover] = useState(false);
   const [pressed, setPressed] = useState(false);
 
-  const sizeLabel = t(`dashboard.recentShots.shotSize.${shot.shotSize}`);
+  // Name der Variante des Siebs (Single/Double/Triple); nur ohne Namen das alte 1x/2x-Kuerzel.
+  const sizeLabel = shot.variantName ?? t(`dashboard.recentShots.shotSize.${shot.shotSize}`);
   const active = hover && !blocked;
 
   // Dose → yield ("15g → 30g"), shown only when both were recorded. Whole
@@ -124,7 +125,7 @@ export function RecentShotCard({ shot, blocked, onRepeat, compact = false }: Rec
         transition: "border-color 0.15s, background 0.15s, transform 0.1s",
       }}
     >
-      {/* Line 1: profile name · (rating) · size badge · repeat hint */}
+      {/* Line 1: Bohne (ohne Bohne das Profil) · (rating) · size badge · repeat hint */}
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <span
           style={{
@@ -136,7 +137,7 @@ export function RecentShotCard({ shot, blocked, onRepeat, compact = false }: Rec
             ...ellipsis,
           }}
         >
-          {shot.profileName}
+          {shot.beanName ?? shot.beanLabel ?? shot.profileName}
         </span>
         {!compact && ratingAndSize}
         <span
@@ -152,13 +153,10 @@ export function RecentShotCard({ shot, blocked, onRepeat, compact = false }: Rec
         </span>
       </div>
 
-      {/* Line 2: bean (emphasised) · grinder · relative time */}
+      {/* Line 2: profile (emphasised) · grinder · relative time — ohne Bohne steht das Profil schon in Zeile 1 */}
       <div style={{ fontSize: 11.5, color: C.mut, ...ellipsis }}>
-        {shot.beanName ? (
-          <span style={{ color: C.txtS, fontWeight: 600 }}>{shot.beanName}</span>
-        ) : shot.beanLabel ? (
-          // Fremdbohne: gleicher Platz, aber nicht fett — es ist keine gepflegte Sorte.
-          <span style={{ color: C.txtS }}>{shot.beanLabel}</span>
+        {(shot.beanName ?? shot.beanLabel) ? (
+          <span style={{ color: C.txtS, fontWeight: 600 }}>{shot.profileName}</span>
         ) : null}
         {(shot.beanName ?? shot.beanLabel) && metaRest ? " · " : ""}
         {metaRest}

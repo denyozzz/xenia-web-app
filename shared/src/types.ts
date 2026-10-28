@@ -188,8 +188,12 @@ export interface MaintenanceRun {
 // Machine control API — shared between backend routes and frontend hook
 // ---------------------------------------------------------------------------
 
-/** POST /api/machine/power. Backend determines withSteam from last known SB_STATUS. */
-export type PowerRequest = { on: boolean };
+/**
+ * POST /api/machine/power.
+ * withSteam weggelassen: Backend bestimmt es aus dem letzten bekannten SB_STATUS.
+ * withSteam true/false: Einschalten explizit mit bzw. ohne Dampfboiler.
+ */
+export type PowerRequest = { on: boolean; withSteam?: boolean };
 
 /** POST /api/machine/steam */
 export type SteamRequest = { on: boolean };
@@ -269,6 +273,8 @@ export interface Profile {
   fit: ProfileFit[];
   /** Archiviert: nicht in der Liste und nicht Favorit, bleibt fuer Historie und Skripte. Umkehrbar. */
   isArchived: boolean;
+  /** Signale: Sekunden ab Start des Bezugs, zu denen das Tablet piept (gilt fuers ganze Profil). */
+  beepTimes?: number[];
   // no icon field — name alone identifies a profile
   // null = flow-driven profile (brewSteps), no Xenia script.
   scriptIdSingle: number | null;
@@ -310,6 +316,8 @@ export interface ProfileVariant {
   sortOrder: number;
   defaultBasketId: number | null;
   yieldG: number | null;
+  /** Dosis in g; null = Vorgabe aus dem Sieb. */
+  doseG?: number | null;
   /** Skript-Variante; null bei App-Variante oder „wie Variante X“. */
   scriptId: number | null;
   /** App-Variante; null bei Skript-Variante oder „wie Variante X“. */
@@ -332,6 +340,8 @@ export interface ProfileVariantInput {
   name: string;
   defaultBasketId: number | null;
   yieldG: number | null;
+  /** Dosis in g; null = Vorgabe aus dem Sieb. */
+  doseG?: number | null;
   scriptId: number | null;
   brewSteps: BrewProfile | null;
   sameAs?: number | null;
@@ -350,6 +360,8 @@ export type ProfileCreate = {
   fit?: ProfileFit[];
   /** Archiviert; fehlt es beim Anlegen, ist es das nicht. */
   isArchived?: boolean;
+  /** Signale in Sekunden ab Start des Bezugs (ganze Zahlen, sortiert, ohne Doppelte). */
+  beepTimes?: number[];
   /** null = flow-driven profile (brewSteps present), no Xenia script. */
   scriptIdSingle: number | null;
   scriptIdDouble?: number | null;
@@ -730,6 +742,11 @@ export interface Coffee {
   favourite: boolean;
   /** Canonical rating ("do I like this coffee"). The normal thing the user sets. */
   rating: BeanRating | null;
+  /** Bevorzugtes Profil dieser Sorte (Startseite). */
+  preferredProfileId?: number | null;
+  /** Anteil Arabica / Robusta in % (10er-Schritte, ergänzen sich zu 100). */
+  arabicaPct?: number | null;
+  robustaPct?: number | null;
   /** Unix ms. */
   createdAt: number;
   /** Unix ms. */
@@ -788,6 +805,9 @@ export interface CoffeeCreate {
   notes?: string | null;
   favourite?: boolean;
   rating?: BeanRating | null;
+  preferredProfileId?: number | null;
+  arabicaPct?: number | null;
+  robustaPct?: number | null;
 }
 
 export type CoffeeUpdate = Partial<CoffeeCreate>;
@@ -984,6 +1004,10 @@ export interface Basket {
   description: string | null;
   /** Dosis-Vorschlag (g), solange es mit dem Sieb keinen Bezug gibt; null = keiner. */
   nominalDoseG: number | null;
+  /** Zielmenge (g) fuer Varianten mit diesem Sieb; null = keine. */
+  targetYieldG?: number | null;
+  /** Name der Variante (Schaltflaeche im Dashboard) mit diesem Sieb, z. B. „Single“; null = keine eigene Schaltflaeche. */
+  variantName?: string | null;
   /** Unix ms. */
   createdAt: number;
   /** Unix ms. */
@@ -996,6 +1020,8 @@ export interface BasketCreate {
   type?: BasketType;
   description?: string | null;
   nominalDoseG?: number | null;
+  targetYieldG?: number | null;
+  variantName?: string | null;
 }
 
 export type BasketUpdate = Partial<BasketCreate>;
@@ -1039,6 +1065,9 @@ export type ShotCategory = "brew" | "maintenance" | "test";
 /** A completed or in-progress shot stored in the `shot` table. */
 /** Post-shot grind note (one tap). */
 export type GrindNote = "finer" | "ok" | "coarser";
+
+/** Dosis-Hinweis der Bewertung: naechstes Mal weniger / passt / mehr. */
+export type DoseNote = "less" | "ok" | "more";
 
 /**
  * Woher der vorbelegte Mahlgrad im Start-Dialog kommt (Schnitt 3e): die Stufe
@@ -1156,6 +1185,8 @@ export interface Shot {
   tasteTags: TasteTag[] | null;
   /** Grind adjustment note. */
   grindNote: GrindNote | null;
+  /** Dosis-Hinweis (weniger / passt / mehr). */
+  doseNote?: DoseNote | null;
   /** Content hash of the brew definition this shot ran (`brew_def.hash`).
    *  null for shots recorded before the column — their brew-time definition is
    *  irrecoverable and was NOT backfilled. */
@@ -1284,6 +1315,8 @@ export interface RecentShot {
   /** Schnitt 3: gelaufene Variante und benutztes Sieb — Wiederholen nimmt beide. */
   variantId?: number | null;
   basketId?: number | null;
+  /** Name der Variante des Siebs (Single/Double/Triple ...) fuer das Kuerzel auf der Karte; null = unbekannt. */
+  variantName?: string | null;
   beanId: number | null;
   /** Freitext-Bohne (Fremdbohne ohne gepflegte Sorte), sonst null. */
   beanLabel: string | null;
@@ -1339,6 +1372,7 @@ export interface ShotListItem {
   vsPrevShotId?: number | null;
   tasteTags: TasteTag[] | null;
   grindNote: GrindNote | null;
+  doseNote?: DoseNote | null;
   notes: string | null;
   beanId: number | null;
   /** Freitext-Bohne (Fremdbohne ohne gepflegte Sorte), sonst null. */
@@ -1393,5 +1427,6 @@ export interface ShotUpdate {
   vsPrevShotId?: number | null;
   tasteTags?: TasteTag[] | null;
   grindNote?: GrindNote | null;
+  doseNote?: DoseNote | null;
   notes?: string | null;
 }

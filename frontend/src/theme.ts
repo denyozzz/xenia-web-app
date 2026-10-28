@@ -295,7 +295,7 @@ export function applyTheme(t: ThemeTokens, base: SchemeBase): void {
   root.style.setProperty("--scroll", t.bdr2);
   root.style.setProperty("--scroll-hover", t.dim);
   root.style.colorScheme = base;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", base === "light" ? t.card : t.acc);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", t.bg);
 }
 
 export type Theme = ThemeTokens;

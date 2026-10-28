@@ -392,6 +392,21 @@ export class XeniaClient {
    * Send a machine/control action. action is a string: "0"–"5".
    * Xenia returns HTTP 200 with empty body (Content-Length: 0).
    */
+  /** Maschineneinstellungen (GET /api/v2/machine): u. a. MA_SET_TIMER_ECO_MA, MA_SET_TIMER_POWERDOWN (Minuten). */
+  getMachineSettings(): Promise<Record<string, number>> {
+    return this.get<Record<string, number>>("/api/v2/machine");
+  }
+
+  /** Schalter-Belegung der Maschine (GET /api/v2/switches). */
+  getSwitches(): Promise<Record<string, number>> {
+    return this.get<Record<string, number>>("/api/v2/switches");
+  }
+
+  /** Schalter-Belegung schreiben: POST /api/v2/switches, nur die 6 SWITCH_SET_* Felder als Text. */
+  setSwitches(body: Record<string, string>): Promise<Record<string, never>> {
+    return this.post<Record<string, never>>("/api/v2/switches", body);
+  }
+
   machineControl(action: string): Promise<void> {
     return this.postControl("/api/v2/machine/control", { action });
   }

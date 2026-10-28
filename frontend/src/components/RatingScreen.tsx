@@ -24,7 +24,7 @@ import { useState } from "react";
 import { Check, ArrowDown, ArrowUp, Split } from "lucide-react";
 import { useTranslation } from "../i18n/index.js";
 import { TASTE_TAGS } from "@shared/types";
-import type { GrindNote, TasteTag, ShotUpdate, ChannelingSeverity, ShotCompare, VsPrev } from "@shared/types";
+import type { GrindNote, DoseNote, TasteTag, ShotUpdate, ChannelingSeverity, ShotCompare, VsPrev } from "@shared/types";
 import { formatDay } from "../lib/dates.js";
 import { RATING_FIELD_DEFAULTS } from "../hooks/useRatingFieldSettings.js";
 import type { RatingFieldSettings } from "../hooks/useRatingFieldSettings.js";
@@ -49,6 +49,8 @@ export interface ShotRatingValues {
   channelingSeverity: ChannelingSeverity | null;
   tasteTags: TasteTag[];
   grindNote: GrindNote | null;
+  /** Dosis fuers naechste Mal: weniger / passt / mehr. */
+  doseNote: DoseNote | null;
   /** Free-text note, bound to shot.notes. */
   notes: string;
   /** Geschmack gegenueber dem letzten Bezug derselben Sorte, und welcher das war. */
@@ -68,6 +70,7 @@ export function ratingValuesToPatch(v: ShotRatingValues): ShotUpdate {
     channelingSeverity: v.channeling ? v.channelingSeverity : null,
     tasteTags: v.tasteTags.length > 0 ? v.tasteTags : null,
     grindNote: v.grindNote,
+    doseNote: v.doseNote,
     notes: v.notes.trim() || null,
     vsPrev: v.vsPrev,
     vsPrevShotId: v.vsPrev ? v.vsPrevShotId : null,
@@ -159,6 +162,9 @@ interface SegItem {
   bg: string;
   onClick: () => void;
 }
+
+/** Channeling-Auswahl im Dialog (aus). */
+const SHOW_CHANNELING = false;
 
 /** Eine Auswahl aus wenigen Stufen in einer Leiste — Channeling, Mahlgrad, Vergleich. */
 function Segmented({ items, height = 32 }: { items: SegItem[]; height?: number }) {
@@ -315,68 +321,21 @@ export function RatingScreen({ initial, onChange, mobile = false, compareTo = nu
       {/* Zeile 2 — Extraktion (Channeling + zu gering/zu hoch), Mahlgrad, Vergleich */}
       <div style={row}>
         <div style={tile}>
-          {head(
-            t("shotRating.extraction"),
-            fields.extraction && (
-              <span style={{ display: "inline-flex", gap: 5 }}>
-                {([
-                  ["under", v.extractionUnder, t("shotRating.under"), <ArrowDown key="i" size={12} />],
-                  ["over",  v.extractionOver,  t("shotRating.over"),  <ArrowUp key="i" size={12} />],
-                ] as ["under" | "over", boolean, string, React.ReactNode][]).map(([key, active, label, icon]) => (
-                  <button
-                    key={key}
-                    onClick={() => { patch(key === "under" ? { extractionUnder: !active } : { extractionOver: !active }); }}
-                    aria-pressed={active}
-                    style={{
-                      height: 22,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 3,
-                      padding: "0 7px",
-                      borderRadius: 11,
-                      fontSize: 10.5,
-                      fontWeight: 600,
-                      fontFamily: "inherit",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      color: active ? C.org : C.txtS,
-                      background: active ? C.orgD : C.bg,
-                      border: `1.5px solid ${active ? `${C.org}80` : C.bdr2}`,
-                    }}
-                  >
-                    {icon}
-                    {label}
-                  </button>
-                ))}
-              </span>
-            ),
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* Rot, wenn markiert — auch beim Altbestand ohne Staerke, wo keine
-                der drei Wahlen leuchtet. */}
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: v.channeling ? C.red : C.txtS, flexShrink: 0 }}>
-              <Split size={14} />
-              {t("shotRating.channeling")}
-            </span>
-            <Segmented
-              items={([
-                ["none",   t("shotRating.channelingNone"),   C.rateOk, okBg],
-                ["light",  t("shotRating.channelingLight"),  C.org,    C.orgD],
-                ["strong", t("shotRating.channelingStrong"), C.red,    C.redD],
-              ] as ["none" | ChannelingSeverity, string, string, string][]).map(([choice, label, col, bg]) => ({
-                key: choice,
-                label,
-                color: col,
-                bg,
-                active: choice === "none" ? !v.channeling : v.channeling && v.channelingSeverity === choice,
-                onClick: () => {
-                  patch(choice === "none"
-                    ? { channeling: false, channelingSeverity: null }
-                    : { channeling: true, channelingSeverity: choice });
-                },
-              }))}
-            />
-          </div>
+          {head(t("shotRating.dose"))}
+          <Segmented
+            items={([
+              ["less", t("shotRating.doseLess")],
+              ["ok", t("shotRating.doseOk")],
+              ["more", t("shotRating.doseMore")],
+            ] as [DoseNote, string][]).map(([d, label]) => ({
+              key: d,
+              label,
+              color: d === "ok" ? C.rateOk : C.acc,
+              bg: d === "ok" ? okBg : C.accG,
+              active: v.doseNote === d,
+              onClick: () => { patch({ doseNote: v.doseNote === d ? null : d }); },
+            }))}
+          />
         </div>
 
         {fields.grindNote && (
@@ -430,7 +389,78 @@ export function RatingScreen({ initial, onChange, mobile = false, compareTo = nu
         )}
       </div>
 
-      {/* Zeile 3 — Geschmack, ganze Breite */}
+      {/* Zeile 3 — Extraktion (nur wenn in den Einstellungen an) neben dem Geschmack */}
+      {(fields.extraction || fields.taste) && (
+      <div style={row}>
+      {fields.extraction && (
+        <div style={{ ...tile, flex: mobile ? 1 : "0 0 auto" }}>
+          {head(
+            t("shotRating.extraction"),
+            (
+              <span style={{ display: "inline-flex", gap: 5 }}>
+                {([
+                  ["under", v.extractionUnder, t("shotRating.under"), <ArrowDown key="i" size={12} />],
+                  ["over",  v.extractionOver,  t("shotRating.over"),  <ArrowUp key="i" size={12} />],
+                ] as ["under" | "over", boolean, string, React.ReactNode][]).map(([key, active, label, icon]) => (
+                  <button
+                    key={key}
+                    onClick={() => { patch(key === "under" ? { extractionUnder: !active } : { extractionOver: !active }); }}
+                    aria-pressed={active}
+                    style={{
+                      height: 22,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
+                      padding: "0 7px",
+                      borderRadius: 11,
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      color: active ? C.org : C.txtS,
+                      background: active ? C.orgD : C.bg,
+                      border: `1.5px solid ${active ? `${C.org}80` : C.bdr2}`,
+                    }}
+                  >
+                    {icon}
+                    {label}
+                  </button>
+                ))}
+              </span>
+            ),
+          )}
+          {SHOW_CHANNELING && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Rot, wenn markiert — auch beim Altbestand ohne Staerke, wo keine
+                der drei Wahlen leuchtet. */}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: v.channeling ? C.red : C.txtS, flexShrink: 0 }}>
+              <Split size={14} />
+              {t("shotRating.channeling")}
+            </span>
+            <Segmented
+              items={([
+                ["none",   t("shotRating.channelingNone"),   C.rateOk, okBg],
+                ["light",  t("shotRating.channelingLight"),  C.org,    C.orgD],
+                ["strong", t("shotRating.channelingStrong"), C.red,    C.redD],
+              ] as ["none" | ChannelingSeverity, string, string, string][]).map(([choice, label, col, bg]) => ({
+                key: choice,
+                label,
+                color: col,
+                bg,
+                active: choice === "none" ? !v.channeling : v.channeling && v.channelingSeverity === choice,
+                onClick: () => {
+                  patch(choice === "none"
+                    ? { channeling: false, channelingSeverity: null }
+                    : { channeling: true, channelingSeverity: choice });
+                },
+              }))}
+            />
+          </div>
+          )}
+        </div>
+
+      )}
       {fields.taste && (
         <div style={{ ...tile, flexDirection: mobile ? "column" : "row", justifyContent: "flex-start", alignItems: mobile ? "stretch" : "center", gap: mobile ? 7 : 12 }}>
           <span style={{ ...labelRow, flexShrink: 0 }} title={t("shotRating.multiHint")}>{t("shotRating.taste")}</span>
@@ -467,6 +497,8 @@ export function RatingScreen({ initial, onChange, mobile = false, compareTo = nu
             })}
           </div>
         </div>
+      )}
+      </div>
       )}
 
       {/* Zeile 4 — Notiz (shot.notes), ganze Breite; ohne Geschmack mehr Platz */}

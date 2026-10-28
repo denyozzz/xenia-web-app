@@ -31,6 +31,9 @@ interface RawCoffeeRow {
   notes: string | null;
   favourite: number;
   rating: string | null;
+  preferred_profile_id?: number | null;
+  arabica_pct?: number | null;
+  robusta_pct?: number | null;
   created_at: number;
   updated_at: number;
   roasting_count?: number;
@@ -67,6 +70,9 @@ function toCoffee(row: RawCoffeeRow): Coffee {
     notes: row.notes,
     favourite: row.favourite === 1,
     rating: (row.rating ?? null) as BeanRating | null,
+    preferredProfileId: row.preferred_profile_id ?? null,
+    arabicaPct: row.arabica_pct ?? null,
+    robustaPct: row.robusta_pct ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.roasting_count !== undefined ? { roastingCount: row.roasting_count } : {}),
@@ -132,8 +138,8 @@ export class SqliteCoffeeRepo implements CoffeeRepo {
         `INSERT INTO coffee
            (name, roaster, country, region, farm, variety, processing,
             altitude_min, altitude_max, roast_level, brew_type, flavor_notes,
-            notes, favourite, rating, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            notes, favourite, rating, preferred_profile_id, arabica_pct, robusta_pct, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         coffee.name,
@@ -151,6 +157,9 @@ export class SqliteCoffeeRepo implements CoffeeRepo {
         coffee.notes ?? null,
         (coffee.favourite ?? false) ? 1 : 0,
         coffee.rating ?? null,
+        coffee.preferredProfileId ?? null,
+        coffee.arabicaPct ?? null,
+        coffee.robustaPct ?? null,
         now,
         now,
       ) as { lastInsertRowid: number | bigint };
@@ -203,6 +212,9 @@ export class SqliteCoffeeRepo implements CoffeeRepo {
     if (patch.notes !== undefined)       { fields.push("notes = ?");         values.push(patch.notes ?? null); }
     if (patch.favourite !== undefined)   { fields.push("favourite = ?");     values.push(patch.favourite ? 1 : 0); }
     if (patch.rating !== undefined)      { fields.push("rating = ?");        values.push(patch.rating ?? null); }
+    if (patch.preferredProfileId !== undefined) { fields.push("preferred_profile_id = ?"); values.push(patch.preferredProfileId ?? null); }
+    if (patch.arabicaPct !== undefined) { fields.push("arabica_pct = ?"); values.push(patch.arabicaPct ?? null); }
+    if (patch.robustaPct !== undefined) { fields.push("robusta_pct = ?"); values.push(patch.robustaPct ?? null); }
 
     if (fields.length === 0) return;
     fields.push("updated_at = ?");

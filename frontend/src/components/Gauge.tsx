@@ -42,6 +42,8 @@ interface GaugeProps {
   /** Mobile: stretch to share the row width (flex) so the gauge row reaches the
    *  right edge, flush with the favorite pills below. Desktop: natural width. */
   mobile?: boolean;
+  /** Feste Farbe statt der Schwellenlogik (z. B. Dampfdruck). */
+  color?: string;
 }
 
 import theme from '../theme';
@@ -83,8 +85,9 @@ export function Gauge({
   decimals = 1,
   onTap,
   mobile = false,
+  color: colorOverride,
 }: GaugeProps) {
-  const color = resolveColor(value, target, steam);
+  const color = colorOverride ?? resolveColor(value, target, steam);
   // Temperature chips show "°" after the setpoint; pressure (bar) shows no unit
   // — the chip stays compact and the label already identifies the reading.
   const sollSuffix = unit.startsWith("°") ? "°" : "";
@@ -98,14 +101,14 @@ export function Gauge({
         background: C.card,
         border: `1px solid ${C.bdr}`,
         borderRadius: 9,
-        padding: "8px 12px",
+        padding: "5px 10px",
         cursor: onTap ? "pointer" : "default",
       }}
     >
       {/* Label — 9.5px uppercase */}
       <div
         style={{
-          fontSize: 9.5,
+          fontSize: 9,
           color: C.mut,
           textTransform: "uppercase",
           letterSpacing: "1.2px",
@@ -121,16 +124,16 @@ export function Gauge({
       <div
         style={{
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 16,
+          fontSize: 14,
           color,
           lineHeight: 1,
-          marginTop: 3,
+          marginTop: 2,
           whiteSpace: "nowrap",
         }}
       >
         {value.toFixed(decimals)}
         {setpoint !== undefined && (
-          <small style={{ fontSize: 13, color: C.mut }}>
+          <small style={{ fontSize: 11, color: C.mut }}>
             {" "}
             / {setpoint.toFixed(setpointDecimals)}
             {sollSuffix}

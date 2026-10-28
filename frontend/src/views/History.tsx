@@ -405,6 +405,57 @@ export function History({ mobile, isBrewing, canStartBrew = !isBrewing, onRepeat
           <ChevronLeft size={16} />{t("history.back")}
         </button>
       )}
+      {/* quick-beans: Schnellfilter - aktive Bohnen */}
+      {(() => {
+        const act = beans.filter((b) => b.isActive);
+        if (act.length === 0) return null;
+        const count = new Map<string, number>();
+        for (const b of act) count.set(b.name, (count.get(b.name) ?? 0) + 1);
+        return (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {act.map((b) => {
+              const on = filters.beanId === b.id;
+              const label = (count.get(b.name) ?? 0) > 1 ? (beanFilterLabels.get(b.id) ?? b.name) : b.name;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => patch({ beanId: on ? null : b.id })}
+                  style={{
+                    padding: "6px 12px", borderRadius: 16, fontSize: 12, fontFamily: "inherit", cursor: "pointer",
+                    background: on ? C.accG2 : C.bg, border: `1px solid ${on ? C.accB : C.bdr}`, color: on ? C.acc : C.mut, fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+      {/* quick-baskets: Schnellfilter - Sieb (Single / Double / Triple) */}
+      {baskets.length > 1 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {[...baskets]
+            .sort((a, b) => (a.nominalDoseG ?? Infinity) - (b.nominalDoseG ?? Infinity) || a.id - b.id)
+            .map((b) => {
+              const on = filters.basketId === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => patch({ basketId: on ? null : b.id })}
+                  style={{
+                    padding: "6px 14px", borderRadius: 16, fontSize: 12, fontFamily: "inherit", cursor: "pointer",
+                    background: on ? C.accG2 : C.bg, border: `1px solid ${on ? C.accB : C.bdr}`, color: on ? C.acc : C.mut, fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {b.name}
+                </button>
+              );
+            })}
+        </div>
+      )}
       {/* Header: count + filter toggle + sort */}
       <div
         style={{
@@ -640,11 +691,11 @@ export function History({ mobile, isBrewing, canStartBrew = !isBrewing, onRepeat
 
       {/* Spaltenkopf — dieselben Breiten wie die Zeilen */}
       {!mobile && shots.length > 0 && !loading && !error && (
-        <div style={{ display: "flex", alignItems: "center", columnGap: 12, padding: "0 10px 6px 14px", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: C.mut }}>
+        <div style={{ display: "flex", alignItems: "center", columnGap: 6, padding: "0 10px 6px 14px", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: C.mut }}>
           <span style={{ flex: 1 }}>{t("history.columns.shot")}</span>
           <span style={{ width: HISTORY_COLS.grind }}>{t("history.columns.grind")}</span>
           <span style={{ width: HISTORY_COLS.rating }}>{t("history.columns.rating")}</span>
-          <span style={{ width: HISTORY_COLS.channeling }}>{t("history.columns.channeling")}</span>
+          {HISTORY_COLS.channeling > 0 && <span style={{ width: HISTORY_COLS.channeling }}>{t("history.columns.channeling")}</span>}
           <span style={{ width: HISTORY_COLS.yield }}>{t("history.columns.yield")}</span>
           <span style={{ width: HISTORY_COLS.actions }} />
         </div>

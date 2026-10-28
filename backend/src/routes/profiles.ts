@@ -81,6 +81,12 @@ export const kindError = (kind: unknown, variants: ProfileCreate["variants"]): s
 // Versuch ist ein Schalter — SQLite nimmt sonst jeden Wert.
 export const trialError = (isTrial: unknown): string | null =>
   (isTrial === undefined || typeof isTrial === "boolean" ? null : "isTrial muss true oder false sein.");
+export const beepError = (v: unknown): string | null => {
+  if (v === undefined) return null;
+  if (!Array.isArray(v) || v.length > 10) return "beepTimes: eine Liste mit höchstens 10 Zeiten.";
+  if (v.some((n) => !Number.isInteger(n) || n < 0 || n > 3600)) return "beepTimes: ganze Sekunden von 0 bis 3600.";
+  return null;
+};
 export const archivedError = (isArchived: unknown): string | null =>
   (isArchived === undefined || typeof isArchived === "boolean" ? null : "isArchived muss true oder false sein.");
 export const fitError = (fit: unknown): string | null =>
@@ -195,7 +201,7 @@ export function registerProfileRoutes(
       return res;
     }
 
-    const invariant = kindError(body.kind, body.variants) ?? trialError(body.isTrial) ?? fitError(body.fit) ?? archivedError(body.isArchived)
+    const invariant = kindError(body.kind, body.variants) ?? trialError(body.isTrial) ?? fitError(body.fit) ?? archivedError(body.isArchived) ?? beepError(body.beepTimes)
       ?? (body.variants !== undefined ? variantError(body.variants) : checkProfileInvariants(body));
     if (invariant) {
       reply.status(400);
@@ -271,7 +277,7 @@ export function registerProfileRoutes(
     // state no start path accepts.
     const pick = <K extends keyof ProfileUpdate>(key: K) =>
       patch[key] !== undefined ? patch[key] : (existing[key as keyof typeof existing] as ProfileUpdate[K]);
-    const invariant = kindError(patch.kind, patch.variants) ?? trialError(patch.isTrial) ?? fitError(patch.fit) ?? archivedError(patch.isArchived) ?? (patch.variants !== undefined ? variantError(patch.variants) : checkProfileInvariants({
+    const invariant = kindError(patch.kind, patch.variants) ?? trialError(patch.isTrial) ?? fitError(patch.fit) ?? archivedError(patch.isArchived) ?? beepError(patch.beepTimes) ?? (patch.variants !== undefined ? variantError(patch.variants) : checkProfileInvariants({
       scriptIdSingle: pick("scriptIdSingle"),
       brewSteps: pick("brewSteps"),
       brewStepsDouble: pick("brewStepsDouble"),

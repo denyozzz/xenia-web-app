@@ -11,13 +11,15 @@ interface RawBasketRow {
   type: BasketType;
   description: string | null;
   nominal_dose_g: number | null;
+  target_yield_g?: number | null;
+  variant_name?: string | null;
   created_at: number;
   updated_at: number;
 }
 
 function toBasket(row: RawBasketRow): Basket {
   return {
-    id: row.id, name: row.name, type: row.type, description: row.description ?? null, nominalDoseG: row.nominal_dose_g ?? null,
+    id: row.id, name: row.name, type: row.type, description: row.description ?? null, nominalDoseG: row.nominal_dose_g ?? null, targetYieldG: row.target_yield_g ?? null, variantName: row.variant_name ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -30,8 +32,8 @@ export class SqliteBasketRepo {
   insert(basket: BasketCreate): number {
     const now = Date.now();
     const result = getDb()
-      .prepare("INSERT INTO basket (name, type, description, nominal_dose_g, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(basket.name, basket.type ?? "single", basket.description ?? null, basket.nominalDoseG ?? null, now, now) as { lastInsertRowid: number };
+      .prepare("INSERT INTO basket (name, type, description, nominal_dose_g, target_yield_g, variant_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(basket.name, basket.type ?? "single", basket.description ?? null, basket.nominalDoseG ?? null, basket.targetYieldG ?? null, basket.variantName ?? null, now, now) as { lastInsertRowid: number };
     return result.lastInsertRowid;
   }
 
@@ -57,6 +59,8 @@ export class SqliteBasketRepo {
     if (patch.type !== undefined) { fields.push("type = ?"); values.push(patch.type); }
     if (patch.description !== undefined) { fields.push("description = ?"); values.push(patch.description); }
     if (patch.nominalDoseG !== undefined) { fields.push("nominal_dose_g = ?"); values.push(patch.nominalDoseG); }
+    if (patch.targetYieldG !== undefined) { fields.push("target_yield_g = ?"); values.push(patch.targetYieldG); }
+    if (patch.variantName !== undefined) { fields.push("variant_name = ?"); values.push(patch.variantName); }
     if (fields.length === 0) return;
     fields.push("updated_at = ?");
     values.push(Date.now(), id);

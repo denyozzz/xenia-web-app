@@ -13,7 +13,7 @@ import type {
 export type MachineCallResult = Promise<string | null>;
 
 export interface MachineControlHook {
-  setPower: (on: boolean) => MachineCallResult;
+  setPower: (on: boolean, withSteam?: boolean) => MachineCallResult;
   setSteam: (on: boolean) => MachineCallResult;
   setEco: (on: boolean) => MachineCallResult;
   setSetpoints: (params: SetpointsUpdateRequest) => MachineCallResult;
@@ -69,8 +69,8 @@ export function useMachineControl(): MachineControlHook {
   }
 
   return {
-    setPower: (on: boolean) =>
-      call("/api/machine/power", { on } satisfies PowerRequest),
+    setPower: (on: boolean, withSteam?: boolean) =>
+      call("/api/machine/power", (withSteam === undefined ? { on } : { on, withSteam }) satisfies PowerRequest),
     setSteam: (on: boolean) =>
       call("/api/machine/steam", { on } satisfies SteamRequest),
     setEco: (on: boolean) =>

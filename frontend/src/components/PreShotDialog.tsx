@@ -24,6 +24,7 @@ import { useBreakpoint } from "../hooks/useBreakpoint.js";
 import { formatDay } from "../lib/dates.js";
 import theme, { alpha } from "../theme.js";
 import { dec } from "../lib/num.js";
+import { useSimple } from "../viewMode.js";
 
 const C = theme;
 
@@ -49,13 +50,19 @@ export type PreShotInitialValues = PreShotPayload;
 
 /** Was gestartet wird: die Variante, das Sieb und die Groesse, die daraus folgt. */
 export interface StartChoice {
+  /** true: die Dosis wurde gegenueber der Vorbelegung geaendert. */
+  doseChanged?: boolean;
   variant: ProfileVariant;
   basketId: number | null;
   shotSize: ShotSize;
+  /** Im Dialog umgeschaltetes Profil (nur fuer diesen Bezug); fehlt = das uebergebene. */
+  profile?: Profile;
 }
 
 interface PreShotDialogProps {
   profile: Profile;
+  /** Alle Profile: damit laesst sich das Profil fuer diesen einen Bezug wechseln. */
+  profiles?: Profile[];
   /** Vorgewaehlte Variante; null = die erste. Im Dialog umschaltbar. */
   variantId: number | null;
   /** Vorgewaehltes Sieb (Wiederholen); fehlt es, gilt das Vorgabe-Sieb der Variante. */
@@ -65,7 +72,7 @@ interface PreShotDialogProps {
   /** Start vom Dashboard-Chip: Variante und Sieb wie beim letzten Bezug mit diesem Profil. */
   suggest?: boolean;
   /** Stoppt das Skript dieser Variante selbst (Cmd 27)? */
-  hasCmd27For?: (variant: ProfileVariant) => boolean;
+  hasCmd27For?: (variant: ProfileVariant, profile?: Profile) => boolean;
   /**
    * When set (repeat flow), the dialog opens prefilled with these exact
    * values instead of the active bean/grinder + the prefill cascade.
@@ -102,7 +109,8 @@ const inputStyle: React.CSSProperties = {
   background: C.bg,
   border: `1px solid ${C.bdr}`,
   color: C.txt,
-  fontSize: 13,
+  fontSize: 15,
+  fontWeight: 600,
   fontFamily: "inherit",
   boxSizing: "border-box",
   outline: "none",
@@ -115,9 +123,9 @@ const numInputStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   display: "block",
-  fontSize: 10,
-  color: C.mut,
-  fontWeight: 600,
+  fontSize: 12,
+  color: C.txtS,
+  fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: 1,
   marginBottom: 4,
@@ -142,10 +150,49 @@ function Field({ label, aside, style, children }: { label: string; aside?: strin
   );
 }
 
+/** Mahlgrad-Empfehlung vom Server (backend/src/grind-advice.ts). */
+interface GrindAdviceInfo {
+  kind: "keep" | "between" | "narrow" | "step";
+  value: number | null;
+  tooCoarse: number | null;
+  tooFine: number | null;
+  basedOn: number;
+  /** Naechste bekannte Grenzen um die Empfehlung (zu fein darunter, zu grob darueber), auch aus aelteren Bezuegen. */
+  nearFine?: number | null;
+  nearCoarse?: number | null;
+  /** Letzte Bezuege (neueste zuerst): Mahlgrad, Bewertung, Zeit (nur bei Gewichtsstopp) und Menge. */
+  recent?: Array<{ grind: number; note: "finer" | "coarser" | "ok" | null; durationS: number | null; yieldG: number | null; missedTargetG?: number | null }>;
+  /** Gesetzt, wenn die Schrittweite aus der Bezugszeit stammt. */
+  timeBasis?: { lastS: number; targetS: number; lastEstimated?: boolean } | null;
+}
+
 const fmtG = (g: number) => dec(Number.isInteger(g) ? String(g) : g.toFixed(1));
 
+/** Eintraege der Auswahlmenues: feste Farben, sonst weiss auf weiss im dunklen Design. */
+const optionStyle: React.CSSProperties = { background: C.cardElev, color: C.txt };
+
+/** Dosis-Schritt der −/+ Knoepfe (g). */
+const DOSE_STEP = 0.5;
+/** Roestgrad-Texte fuer die Einfachansicht. */
+const ROAST_LABEL: Record<string, { de: string; en: string }> = {
+  "light": { de: "Hell", en: "Light" },
+  "light-medium": { de: "Hell", en: "Light" },
+  "medium": { de: "Mittel", en: "Medium" },
+  "medium-dark": { de: "Dunkel", en: "Dark" },
+  "dark": { de: "Dunkel", en: "Dark" },
+};
+/** Rahmen um eine Feldgruppe (Bohne+Dosis, Muehle+Mahlgrad). */
+const groupBox: React.CSSProperties = {
+  minWidth: 0, boxSizing: "border-box", padding: "8px 10px 0",
+  border: `1px solid ${C.accB}`, borderRadius: 10, background: C.accG,
+};
+const doseBtn: React.CSSProperties = {
+  width: 44, height: 40, flexShrink: 0, borderRadius: 8, border: `1px solid ${C.bdr}`,
+  background: C.bg, color: C.txt, fontSize: 20, lineHeight: 1, cursor: "pointer", fontFamily: "inherit",
+};
+
 /** Mahlgrad-Schritt der Knoepfe — die Einstellungen liegen in halben Schritten. */
-const GRIND_STEP = 0.5;
+const GRIND_STEP = 1;
 
 /**
  * Mahlgrad mit −/+: der Wert, der sich zwischen zwei Bezuegen am haeufigsten
@@ -159,8 +206,13 @@ function GrindStepper({ value, onChange, inputStyle }: {
   const bump = (dir: 1 | -1) => {
     const n = parseFloat(value.replace(",", "."));
     if (!Number.isFinite(n)) return;
-    onChange(String(Math.max(0, Math.round((n + dir * GRIND_STEP) * 10) / 10)));
+    onChange(String(Math.max(0, dir > 0
+      ? (Math.floor(n / GRIND_STEP) + 1) * GRIND_STEP
+      : (Math.ceil(n / GRIND_STEP) - 1) * GRIND_STEP)));
   };
+  // Immer ganze Zahlen — auch ein vorbelegtes 12,5 wird gerundet angezeigt.
+  const parsed = parseFloat(value.replace(",", "."));
+  const shown = Number.isFinite(parsed) ? String(Math.round(parsed)) : value;
   const btn: React.CSSProperties = {
     width: 44, height: 40, flexShrink: 0, borderRadius: 8, border: `1px solid ${C.bdr}`,
     background: C.bg, color: C.txt, fontSize: 20, lineHeight: 1, cursor: "pointer", fontFamily: "inherit",
@@ -171,9 +223,13 @@ function GrindStepper({ value, onChange, inputStyle }: {
       <input
         style={{ ...inputStyle, textAlign: "center" }}
         type="number"
-        step={0.1}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        step={1}
+        inputMode="numeric"
+        value={shown}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          onChange(Number.isFinite(n) ? String(Math.max(0, n)) : "");
+        }}
       />
       <button type="button" aria-label={t("ui.preshot.grindCoarser")} onClick={() => bump(1)} style={btn}>+</button>
     </div>
@@ -185,7 +241,8 @@ function GrindStepper({ value, onChange, inputStyle }: {
 // ---------------------------------------------------------------------------
 
 export function PreShotDialog({
-  profile,
+  profile: profileProp,
+  profiles = [],
   variantId: initialVariantId,
   basketId: initialBasketId,
   beanId: initialBeanId = null,
@@ -201,6 +258,11 @@ export function PreShotDialog({
   onSetFromProfile,
 }: PreShotDialogProps) {
   const { t, lang } = useTranslation();
+  // Das Profil laesst sich im Dialog wechseln — nur fuer diesen Bezug.
+  const [profile, setProfile] = useState<Profile>(profileProp);
+  // Einfach/Experte: Standard ist die Ansicht, aus der der Bezug gestartet wurde; im Dialog umschaltbar.
+  const appSimple = useSimple();
+  const [simpleMode, setSimpleMode] = useState<boolean>(appSimple);
   // Handy: die Profilzeile bricht um, das Sieb bekommt eine eigene Zeile.
   const mobile = useBreakpoint() === "mobile";
   const { beans, grinders, activeBeanId, activeGrinderId, loading } = usePreShotData();
@@ -216,6 +278,8 @@ export function PreShotDialog({
   const [variantId, setVariantId] = useState<number | null>(initialVariantId ?? variants[0]?.id ?? null);
   const variant = variants.find((v) => v.id === variantId) ?? variants[0] ?? null;
   const { baskets } = useBaskets();
+  const basketsRef = useRef(baskets);
+  basketsRef.current = baskets;
   const [basketChoice, setBasketChoice] = useState<number | null | undefined>(initialBasketId ?? undefined);
   const basketId = basketChoice !== undefined ? basketChoice : (variant?.defaultBasketId ?? null);
   const basket = baskets.find((b) => b.id === basketId) ?? null;
@@ -224,16 +288,19 @@ export function PreShotDialog({
   // wird das Sieb selbst, nicht ein Typ: zwei 1er-Siebe sind zwei Siebe.
   const basketMismatch = basket !== null && defaultBasket !== null && basket.id !== defaultBasket.id;
   const [basketWarn, setBasketWarn] = useState(false);
-  const showBasket = baskets.length > 0 && variant?.defaultBasketId != null;
+  // Das Sieb-Dropdown entfaellt, wenn jede Variante ihr eigenes Sieb hat (Single/Double/Triple): das Sieb folgt der Variante.
+  const showBasket = baskets.length > 0 && variant?.defaultBasketId != null
+    && !(variants.length > 1 && variants.every((v) => v.defaultBasketId != null)
+      && new Set(variants.map((v) => v.defaultBasketId)).size === variants.length);
   // Das Sieb waehlt die Variante (Flavio: das Dropdown reicht). Die Varianten-
   // Knoepfe bleiben nur, wo das nicht eindeutig geht: eine Variante ohne eigenes
   // Sieb oder zwei Varianten auf demselben Sieb.
   const variantByBasket = variants.length > 1
     && variants.every((v) => v.defaultBasketId != null)
     && new Set(variants.map((v) => v.defaultBasketId)).size === variants.length;
-  const showVariantButtons = variants.length > 1 && !variantByBasket;
+  const showVariantButtons = variants.length > 1;
   const lineControls = variants.length > 1 || showBasket;
-  const hasCmd27 = variant ? (hasCmd27For?.(variant) ?? false) : false;
+  const hasCmd27 = variant ? (hasCmd27For?.(variant, profile) ?? false) : false;
 
   // --- Selection state ---
   const [beanId, setBeanId]       = useState<number | null>(null);
@@ -258,8 +325,28 @@ export function PreShotDialog({
   const [grindSetting, setGrindSetting] = useState("");
   /** Woher der vorbelegte Mahlgrad kommt; null, sobald er von Hand geaendert ist. */
   const [grindSource, setGrindSource]   = useState<GrindSource | null>(null);
+  const [grindAdvice, setGrindAdvice]   = useState<GrindAdviceInfo | null>(null);
+  const [lastNote, setLastNote] = useState<{ notes: string; startedAt: number } | null>(null);
+  const [beanRatio, setBeanRatio] = useState<number | null>(null);
+  const [doseAdvice, setDoseAdvice] = useState<{ doseG: number; lastDoseG: number; note: "less" | "ok" | "more"; startedAt: number } | null>(null);
   const [grinderRpm, setGrinderRpm]     = useState("");
   const [doseG, setDoseG]               = useState("");
+  /** Dosis des letzten Bezugs (gleiche Bohne + Sieb) — wird zum Uebernehmen angeboten. */
+  const [lastShotDoseG, setLastShotDoseG] = useState<number | null>(null);
+  /** Zuletzt automatisch eingetragene Dosis; nur solange sie unveraendert ist, wird sie nachgezogen. */
+  const dosePrefilled = useRef<string | null>(null);
+  /** true: die Vorbelegung stammt aus dem Profil — die Nenndosis des Siebs darf sie nicht ersetzen. */
+  const dosePlanned = useRef(false);
+  // Die Siebe laden evtl. nach der Vorbelegung: dann die Nenndosis des Siebs nachtragen (nur wenn noch nichts geaendert wurde).
+  useEffect(() => {
+    if (baskets.length === 0 || dosePrefilled.current === null || dosePlanned.current) return;
+    const nom = baskets.find((b) => b.id === basketId)?.nominalDoseG ?? null;
+    if (nom !== null && doseG === dosePrefilled.current && String(nom) !== doseG) {
+      dosePrefilled.current = String(nom);
+      setDoseG(String(nom));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baskets, basketId]);
 
   const [starting, setStarting] = useState(false);
   const [error, setError]       = useState<string | null>(null);
@@ -287,6 +374,10 @@ export function PreShotDialog({
   // --- Yield override (per-shot only; null = use profile default) ---
   const [yieldOverrideG, setYieldOverrideG] = useState<number | null>(null);
   const [yieldPopupOpen, setYieldPopupOpen] = useState(false);
+  // Temperatur (Einfachansicht): eigener Wert statt Profil-Soll, in einem kleinen Fenster einstellbar.
+  const [tempPopupOpen, setTempPopupOpen] = useState(false);
+  const [tempInput, setTempInput] = useState("");
+  const [tempOverrideC, setTempOverrideC] = useState<number | null>(null);
   const [yieldInput, setYieldInput]         = useState("");
   const [ratioInput, setRatioInput]         = useState("");
 
@@ -319,11 +410,29 @@ export function PreShotDialog({
           suggestedVariantId?: number | null;
           suggestedBasketId?: number | null;
           grindSource?: GrindSource | null;
+          lastShotDoseG?: number | null;
+          plannedDoseG?: number | null;
+          grindAdvice?: GrindAdviceInfo | null;
+          lastNote?: { notes: string; startedAt: number } | null;
+          beanRatio?: number | null;
+          doseAdvice?: { doseG: number; lastDoseG: number; note: "less" | "ok" | "more"; startedAt: number } | null;
         };
         setGrindSetting(d.grindSetting !== null ? String(d.grindSetting) : "");
         setGrindSource(d.grindSource ?? null);
+        setGrindAdvice(d.grindAdvice ?? null);
+        setLastNote(d.lastNote ?? null);
+        setBeanRatio(d.beanRatio ?? null);
+        setDoseAdvice(d.doseAdvice ?? null);
         setGrinderRpm(d.grinderRpm !== null ? String(d.grinderRpm) : "");
-        setDoseG(d.doseG !== null ? String(d.doseG) : "");
+        // Dosis aus dem Profil (Nenndosis des Siebs); fehlt sie, die aus dem letzten Bezug.
+        const effBasket = bkId ?? d.suggestedBasketId ?? null;
+        const nominal = effBasket !== null ? (basketsRef.current.find((b) => b.id === effBasket)?.nominalDoseG ?? null) : null;
+        const planned = d.plannedDoseG ?? null;
+        dosePlanned.current = planned !== null;
+        const doseStr = planned !== null ? String(planned) : nominal !== null ? String(nominal) : d.doseG !== null ? String(d.doseG) : "";
+        dosePrefilled.current = doseStr;
+        setDoseG(doseStr);
+        setLastShotDoseG(d.lastShotDoseG ?? null);
         return {
           suggestedBeanId: d.suggestedBeanId ?? null,
           suggestedGrinderId: d.suggestedGrinderId ?? null,
@@ -425,6 +534,98 @@ export function PreShotDialog({
   })();
 
   const doseMissing = doseWarn && doseG.trim() === "";
+  // Dosis des letzten Bezugs, falls sie von der eingetragenen abweicht.
+  const doseEl = doseAdvice ? (
+    parseFloat(doseG.replace(",", ".")) !== doseAdvice.doseG ? (
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6, fontSize: 12, color: C.mut }}>
+        <span>
+          {simpleMode
+            ? `Empfehlung: ${fmtG(doseAdvice.doseG)} g`
+            : `Empfehlung: ${fmtG(doseAdvice.doseG)} g (zuletzt ${fmtG(doseAdvice.lastDoseG)} g, ${doseAdvice.note === "less" ? "weniger" : doseAdvice.note === "more" ? "mehr" : "passte"})`}
+        </span>
+        <button
+          type="button"
+          onClick={() => { setDoseG(String(doseAdvice.doseG)); setDoseWarn(false); }}
+          style={{ background: "transparent", border: `1px solid ${C.accB}`, color: C.acc, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}
+        >
+          übernehmen
+        </button>
+      </div>
+    ) : null
+  ) : lastShotDoseG !== null && parseFloat(doseG.replace(",", ".")) !== lastShotDoseG ? (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginTop: 6, fontSize: 12, color: C.mut }}>
+      <span>{`Letzter Bezug: ${fmtG(lastShotDoseG)} g`}</span>
+      <button
+        type="button"
+        onClick={() => { setDoseG(String(lastShotDoseG)); setDoseWarn(false); }}
+        style={{ background: "transparent", border: `1px solid ${C.accB}`, color: C.acc, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+      >
+        übernehmen
+      </button>
+    </div>
+  ) : null;
+  // Empfehlung zum Mahlgrad aus den letzten bewerteten Bezuegen.
+  const adviceEl = grindAdvice ? (() => {
+    const a = grindAdvice;
+    // Grenzen um die Empfehlung: zu fein (darunter) und zu grob (darueber), soweit bekannt.
+    const lim = [
+      a.nearFine != null ? `${a.nearFine} zu fein` : null,
+      a.nearCoarse != null ? `${a.nearCoarse} zu grob` : null,
+    ].filter((x): x is string => x !== null).join(", ");
+    // Einfach-Ansicht: nur die Empfehlung, ohne Erklaerung; die Grenzen, Zeiten und letzten Bezuege nur im Experten-Dialog.
+    const txt = simpleMode && a.value !== null ? `Empfehlung: ${a.value}` : a.kind === "keep" ? `Empfehlung: ${a.value} halten (letzter Bezug passte${lim ? `; ${lim}` : ""})`
+      : a.kind === "narrow" ? `Eng eingegrenzt: zwischen ${a.tooFine} (zu fein) und ${a.tooCoarse} (zu grob)`
+      : a.timeBasis ? `Empfehlung: ${a.value} (${lim !== "" ? `${lim}; ` : ""}${a.timeBasis.lastEstimated ? `letzter Bezug ≈ ${a.timeBasis.lastS} s bis zur Zielmenge (geschätzt)` : `letzter Bezug ${a.timeBasis.lastS} s`}, Ziel ca. ${a.timeBasis.targetS} s)`
+      : lim !== "" ? `Empfehlung: ${a.value} (${lim})`
+      : `Empfehlung: ${a.value}`;
+    // Messwerte der letzten Bezuege neben dem Urteil: Mahlgrad · Zeit · Menge · Bewertung.
+    const noteTxt = (n: string | null) => (n === "finer" ? "zu grob" : n === "coarser" ? "zu fein" : n === "ok" ? "passt" : null);
+    const g1 = (x: number) => String(Math.round(x * 10) / 10).replace(".", ",");
+    const recentRows = (a.recent ?? [])
+      .filter((r) => r.durationS !== null || r.yieldG !== null)
+      .slice(0, 3)
+      .map((r) => [
+        `Mahlgrad ${String(r.grind)}`,
+        r.yieldG !== null
+          ? r.missedTargetG != null ? `${g1(r.yieldG)} von ${g1(r.missedTargetG)} g` : `${g1(r.yieldG)} g`
+          : "–",
+        r.durationS !== null ? `${Math.round(r.durationS)} s` : "–",
+        noteTxt(r.note) !== null ? `(${noteTxt(r.note)})` : "–",
+      ]);
+    const cur = Math.round(parseFloat(grindSetting.replace(",", ".")));
+    const can = a.value !== null && cur !== a.value;
+    return (
+      <div style={{ marginTop: 6, fontSize: 12, color: C.mut }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span>{txt}</span>
+          {can && (
+            <button
+              type="button"
+              onClick={() => { setGrindSetting(String(a.value)); setGrindSource(null); }}
+              style={{ background: "transparent", border: `1px solid ${C.accB}`, color: C.acc, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}
+            >
+              übernehmen
+            </button>
+          )}
+        </div>
+        {!simpleMode && recentRows.length > 0 && (
+          <div style={{ flexBasis: "100%", fontSize: 11 }}>
+            <div style={{ marginBottom: 2 }}>Letzte Bezüge</div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto", justifyContent: "start", columnGap: 22, rowGap: 2, fontSize: 10.5, maxWidth: "100%", fontFamily: "'JetBrains Mono', monospace" }}>
+              {recentRows.flatMap((cells, i) => cells.map((c, j) => <span key={`${i}-${j}`} style={{ whiteSpace: "nowrap" }}>{c}</span>))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  })() : null;
+  // Notiz vom letzten bewerteten gleichen Bezug - bis ein neuerer gleicher Bezug bewertet ist.
+  const noteEl = lastNote ? (
+    <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.bdr}`, background: C.bg, fontSize: 12, color: C.txtS, whiteSpace: "pre-wrap" }}>
+      <span style={{ color: C.mut }}>Notiz vom letzten gleichen Bezug ({new Date(lastNote.startedAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}): </span>
+      {lastNote.notes}
+    </div>
+  ) : null;
   // Die Bohnen liegen auf der Waage: das Gewicht als Dosis anbieten, sobald es
   // nach einer Dosis aussieht (nicht 0, keine Tasse).
   const scaleDoseG = liveScaleG !== null && liveScaleG >= 3 && liveScaleG <= 40 ? Math.round(liveScaleG * 10) / 10 : null;
@@ -436,8 +637,8 @@ export function PreShotDialog({
   // Tablet/PC ohne Notiz: die Breite fuer zwei Feldspalten nutzen (Flavio 24.10.: „sehr
   // gequetscht“) — Bohne ueber die ganze Breite, dann Muehle | Dosis, Mahlgrad | RPM.
   const twoCol = !mobile && !showProfileNotes;
-  const cell = (order: number, full = false): React.CSSProperties | undefined =>
-    twoCol ? { order, ...(full ? { gridColumn: "1 / -1" } : {}) } : undefined;
+  // Beide Kaesten teilen sich die Zeilen: Bohne|Muehle, Dosis|Mahlgrad, (RPM).
+  const row = (n: number): React.CSSProperties | undefined => (twoCol ? { gridRow: n } : undefined);
 
   const rpmNum = grinderRpm.trim() === "" ? null : parseFloat(grinderRpm);
   const rpmOutOfRange =
@@ -451,6 +652,23 @@ export function PreShotDialog({
 
   // Variante im Dialog umschalten: Sieb zurueck auf ihre Vorgabe, eine
   // Yield-Aenderung galt der alten Variante.
+  // Profil nur fuer diesen Bezug wechseln: gleichnamige Variante, Vorgaben neu.
+  const switchable = measurement ? [] : profiles.filter((p) => p.kind !== "test" || p.id === profile.id);
+  function pickProfile(id: number): void {
+    const next = profiles.find((p) => p.id === id);
+    if (!next || next.id === profile.id) return;
+    const nextVariants = startVariants(next);
+    const nv = nextVariants.find((v) => v.name === variant?.name) ?? nextVariants[0] ?? null;
+    const nextBasket = nv?.defaultBasketId ?? null;
+    setProfile(next);
+    setVariantId(nv?.id ?? null);
+    setBasketChoice(undefined);
+    setBasketWarn(false);
+    setYieldOverrideG(null);
+    cascadeBasket.current = nextBasket;
+    void fetchDefaults(beanId, grinderId, beanId !== null ? next.id : undefined, nextBasket);
+  }
+
   function pickVariant(next: number): void {
     if (next === variantId) return;
     setVariantId(next);
@@ -474,15 +692,50 @@ export function PreShotDialog({
 
   // Effective yield = override if set, else profile default. The override is
   // "active" (and gets the changed-indicator) only when it differs from default.
-  const effectiveYieldG = yieldOverrideG ?? yieldG;
-  const overrideActive = yieldOverrideG !== null && yieldOverrideG !== yieldG;
-
   // Ratio: Yield und 1:x haengen ueber die eingetragene Dosis zusammen — nur,
   // wenn das Profil eine Dosis abfragt und eine eingetragen ist.
   const doseVal = fields.dose ? parseFloat(doseG) : NaN;
   const hasDose = Number.isFinite(doseVal) && doseVal > 0;
+  // Ratio der Bohne: Dosis x Ratio ersetzt das Profil-Yield fuer diesen Bezug (das Profil selbst bleibt unveraendert).
+  // Eine Eingabe im Yield-Fenster geht vor.
+  const ratioYieldG = beanRatio !== null && hasDose ? Math.round(doseVal * beanRatio * 10) / 10 : null;
+  const effectiveYieldG = yieldOverrideG ?? ratioYieldG ?? yieldG;
+  const overrideActive = effectiveYieldG !== yieldG;
   const round2 = (v: number) => Math.round(v * 100) / 100;
   const ratioText = (r: number) => (lang === "de" ? String(round2(r)).replace(".", ",") : String(round2(r)));
+
+  /** Dosis in 0,5-g-Schritten auf dem Raster; leer startet bei der Waage (falls Bohnen aufliegen) oder 0. */
+  function bumpDose(dir: 1 | -1): void {
+    const n = parseFloat(doseG.replace(",", "."));
+    const base = Number.isFinite(n) ? n : (scaleDoseG ?? 0);
+    const next = dir > 0
+      ? (Math.floor(base / DOSE_STEP + 1e-9) + 1) * DOSE_STEP
+      : (Math.ceil(base / DOSE_STEP - 1e-9) - 1) * DOSE_STEP;
+    setDoseG(String(Math.round(Math.max(0, next) * 10) / 10));
+    setDoseWarn(false);
+  }
+
+  function openTempPopup(): void {
+    const cur = tempOverrideC ?? profile.targetTempC;
+    setTempInput(cur !== null ? String(cur) : "");
+    setTempPopupOpen(true);
+  }
+
+  /** reset = zurueck auf das Profil-Soll; sonst den eingegebenen Wert (70-105 °C) auf die Maschine setzen. */
+  async function applyTemp(reset: boolean): Promise<void> {
+    const target = profile.targetTempC;
+    const n = parseFloat(tempInput.replace(",", "."));
+    const val: number | null = reset ? target : Number.isFinite(n) && n >= 70 && n <= 105 ? n : null;
+    if (val === null || !onSetFromProfile) return;
+    setTempPopupOpen(false);
+    setSettingTemp(true);
+    try {
+      await onSetFromProfile(val);
+      setTempOverrideC(reset || val === target ? null : val);
+    } finally {
+      setSettingTemp(false);
+    }
+  }
 
   function openYieldPopup(): void {
     setYieldInput(effectiveYieldG !== null ? String(effectiveYieldG) : "");
@@ -517,6 +770,21 @@ export function PreShotDialog({
     setYieldOverrideG(null);
     setYieldPopupOpen(false);
   }
+
+  // Einfach-Ansicht: Maschine automatisch auf die Soll-Temperatur des Profils (einmal je Profil/Soll).
+  const autoTempRef = useRef("");
+  useEffect(() => {
+    if (!simpleMode || !onSetFromProfile || profile.targetTempC === null) return;
+    const target = profile.targetTempC;
+    const bgD = currentBgSetpointC != null && Math.abs(currentBgSetpointC - target) >= 0.05;
+    const bbD = currentBbSetpointC != null && Math.abs(currentBbSetpointC - target) >= 0.05;
+    const key = `${profile.id}:${target}`;
+    if ((!bgD && !bbD) || autoTempRef.current === key) return;
+    autoTempRef.current = key;
+    setSettingTemp(true);
+    void onSetFromProfile(target).finally(() => setSettingTemp(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simpleMode, profile.id, profile.targetTempC, currentBgSetpointC, currentBbSetpointC]);
 
   // --- Start ---
   async function handleStart(): Promise<void> {
@@ -573,12 +841,12 @@ export function PreShotDialog({
       grinderId: fields.grinder ? grinderId : null,
       grindSetting:
         fields.grindSetting && grindSetting.trim() !== ""
-          ? parseFloat(grindSetting)
+          ? Math.round(parseFloat(grindSetting.replace(",", ".")))
           : null,
       grinderRpm:
         showRpm && grinderRpm.trim() !== "" ? parseInt(grinderRpm, 10) : null,
       doseG: fields.dose && doseG.trim() !== "" ? parseFloat(doseG) : null,
-      yieldTargetOverrideG: yieldOverrideG,
+      yieldTargetOverrideG: yieldOverrideG ?? (ratioYieldG !== yieldG ? ratioYieldG : null),
     };
 
     if (!variant) {
@@ -586,7 +854,9 @@ export function PreShotDialog({
       setStarting(false);
       return;
     }
-    const err = await onStart(payload, { variant, basketId, shotSize: shotSizeForBasket(basket?.type ?? null) });
+    const preDose = parseFloat((dosePrefilled.current ?? "").replace(",", "."));
+    const doseChanged = payload.doseG !== null && !(Number.isFinite(preDose) && Math.abs(preDose - payload.doseG) < 0.001);
+    const err = await onStart(payload, { variant, basketId, shotSize: shotSizeForBasket(basket?.type ?? null), profile, doseChanged });
     if (err) {
       setError(err);
       setStarting(false);
@@ -640,6 +910,24 @@ export function PreShotDialog({
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.txt }}>
             {t("preshot.title")}
           </h2>
+          <span role="radiogroup" aria-label="Ansicht" style={{ display: "inline-flex", border: `1px solid ${C.bdr}`, borderRadius: 6, overflow: "hidden", opacity: 0.75 }}>
+            {([[true, "Einfach"], [false, "Experte"]] as const).map(([k, label]) => (
+              <button
+                key={label}
+                role="radio"
+                aria-checked={simpleMode === k}
+                onClick={() => setSimpleMode(k)}
+                style={{
+                  height: 22, padding: "0 9px", border: "none", cursor: "pointer", fontFamily: "inherit",
+                  fontSize: 11, fontWeight: 500,
+                  background: simpleMode === k ? C.accG : "transparent",
+                  color: simpleMode === k ? C.txtS : C.mut,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
           <button
             onClick={onClose}
             style={{
@@ -654,6 +942,132 @@ export function PreShotDialog({
           </button>
         </div>
 
+        {simpleMode && (
+          <div>
+            {/* Info — nicht aenderbar */}
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "4px 16px", background: C.accG, border: `1px solid ${C.accB}`, borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.txt }}>{profile.name}</span>
+              {variant && <span style={{ fontSize: 15, fontWeight: 700, color: C.acc }}>{variant.name}</span>}
+              {profile.targetTempC !== null && (() => {
+                const shown = tempOverrideC ?? profile.targetTempC;
+                const changed = tempOverrideC !== null;
+                return (
+                  <button
+                    type="button"
+                    onClick={onSetFromProfile ? openTempPopup : undefined}
+                    title="Temperatur ändern"
+                    style={{ display: "inline-flex", alignItems: "baseline", gap: 6, background: "transparent", border: "none", padding: 0, cursor: onSetFromProfile ? "pointer" : "default", fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: C.txtS }}
+                  >
+                    <span style={{ color: changed ? C.acc : undefined, fontWeight: changed ? 700 : 400 }}>
+                      {lang === "de" ? shown.toFixed(1).replace(".", ",") : shown.toFixed(1)} °C
+                    </span>
+                    {settingTemp && <span>· wird gesetzt …</span>}
+                    {changed && !settingTemp && (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: C.acc, background: C.accG, border: `1px solid ${C.accB}`, borderRadius: 6, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        geändert
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
+              <button
+                type="button"
+                onClick={openYieldPopup}
+                title={t("preshot.yieldEditTitle")}
+                style={{ display: "inline-flex", alignItems: "baseline", gap: 6, background: "transparent", border: "none", padding: 0, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: C.txtS }}
+              >
+                {effectiveYieldG !== null ? (
+                  <span>
+                    →{" "}
+                    <span style={{ color: overrideActive ? C.acc : undefined, fontWeight: overrideActive ? 700 : 400 }}>{effectiveYieldG}</span>
+                    {" "}g {t("preshot.yield")}
+                    {hasDose && ` · 1:${ratioText(effectiveYieldG / doseVal)}`}
+                  </span>
+                ) : (
+                  <span>{t("preshot.noYield")}, {t("preshot.yieldSetHint")}</span>
+                )}
+                {overrideActive && (
+                  <span style={{ fontSize: 9, fontWeight: 700, color: C.acc, background: C.accG, border: `1px solid ${C.accB}`, borderRadius: 6, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    {t("preshot.yieldChanged")}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {loading ? (
+              <div style={{ color: C.mut, fontSize: 13, padding: "24px 0", textAlign: "center" }}>{t("preshot.loading")}</div>
+            ) : (
+              <>
+                {(() => {
+                  const roastRaw = (selectedBean as unknown as { roastLevel?: string | null } | null)?.roastLevel ?? null;
+                  const roast = roastRaw && ROAST_LABEL[roastRaw] ? ROAST_LABEL[roastRaw]![lang === "de" ? "de" : "en"] : null;
+                  const showLeft = !measurement || fields.dose;
+                  const showRight = fields.grinder || fields.grindSetting;
+                  const split = !mobile && showLeft && showRight;
+                  const boxStyle: React.CSSProperties = {
+                    ...groupBox,
+                    ...(split ? { display: "grid", gridTemplateRows: "subgrid", gridRow: "1 / span 2" } : {}),
+                  };
+                  const r = (n: number): React.CSSProperties | undefined => (split ? { gridRow: n } : undefined);
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: mobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1fr)", gridTemplateRows: split ? "auto auto" : undefined, columnGap: 12, rowGap: 10 }}>
+                      {showLeft && (
+                        <div style={boxStyle}>
+                          {!measurement && (
+                            <div style={{ marginBottom: 8, minWidth: 0, ...r(1) }}>
+                              <div style={{ fontSize: 24, fontWeight: 700, color: C.txt, marginBottom: 3 }}>{t("preshot.bean")}</div>
+                              <div style={{ ...labelStyle, textTransform: "none", fontSize: 14, letterSpacing: 0, marginBottom: 0 }}>
+                                {selectedBean?.name ?? (beanId === null && beanLabel.trim() !== "" ? beanLabel.trim() : t("beanPicker.noBean"))}
+                                {roast && <span style={{ fontWeight: 400, color: C.mut }}>{` · ${roast}`}</span>}
+                              </div>
+                            </div>
+                          )}
+                          {fields.dose && (
+                            <Field label={`${t("preshot.dose")} (g)`} style={r(2)}>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button type="button" aria-label="Dosis 0,5 g weniger" onClick={() => bumpDose(-1)} style={{ ...doseBtn, width: 56, height: 52, fontSize: 26 }}>−</button>
+                                <input
+                                  ref={doseRef}
+                                  style={{ ...numInputStyle, flex: 1, minWidth: 0, textAlign: "center", fontSize: 24, ...(doseMissing ? { borderColor: C.red } : {}) }}
+                                  type="number" step={0.1} min={0} inputMode="decimal"
+                                  value={doseG}
+                                  onChange={(e) => { setDoseG(e.target.value); if (e.target.value.trim() !== "") setDoseWarn(false); }}
+                                />
+                                <button type="button" aria-label="Dosis 0,5 g mehr" onClick={() => bumpDose(1)} style={{ ...doseBtn, width: 56, height: 52, fontSize: 26 }}>+</button>
+                              </div>
+                              {doseEl}
+                              {doseMissing && <div style={{ fontSize: 11.5, color: C.red, marginTop: 5 }}>{t("preshot.doseMissing")}</div>}
+                            </Field>
+                          )}
+                        </div>
+                      )}
+                      {showRight && (
+                        <div style={boxStyle}>
+                          {fields.grinder && (
+                            <div style={{ marginBottom: 8, minWidth: 0, ...r(1) }}>
+                              <div style={{ fontSize: 24, fontWeight: 700, color: C.txt, marginBottom: 3 }}>{t("preshot.grinder")}</div>
+                              <div style={{ ...labelStyle, textTransform: "none", fontSize: 14, letterSpacing: 0, marginBottom: 0 }}>{selectedGrinder?.name ?? t("preshot.noGrinder")}</div>
+                            </div>
+                          )}
+                          {fields.grindSetting && (
+                            <Field label={t("preshot.grindSetting")} aside={grindAside} style={r(2)}>
+                              <GrindStepper value={grindSetting} onChange={(v) => { setGrindSetting(v); setGrindSource(null); }} inputStyle={{ ...numInputStyle, fontSize: 24 }} />
+                          {adviceEl}
+                          {noteEl}
+                            </Field>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+        )}
+
+        {!simpleMode && (
+        <>
         {/* Profile summary — read-only */}
         <div
           style={{
@@ -666,32 +1080,43 @@ export function PreShotDialog({
             borderRadius: 8,
             // Mit Varianten-Umschalter oder Sieb 1 px weniger Polster: die Zeile
             // bleibt so hoch wie vorher, der Dialog wird nicht laenger.
-            padding: lineControls ? "6px 12px" : "7px 12px",
+            padding: lineControls ? "4px 12px" : "7px 12px",
             marginBottom: 10,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>
-            {profile.name}
-          </span>
-          {showVariantButtons ? (
-            <span role="radiogroup" aria-label={t("preshot.variant")} style={{ display: "inline-flex", border: `1px solid ${C.accB}`, borderRadius: 7, overflow: "hidden", flexShrink: mobile ? 0 : 1, minWidth: 0 }}>
-              {variants.map((v) => (
-                <button
-                  key={v.id}
-                  role="radio"
-                  aria-checked={variant?.id === v.id}
-                  onClick={() => pickVariant(v.id)}
-                  style={{
-                    height: 17, padding: "0 9px", border: "none", cursor: "pointer", fontFamily: "inherit",
-                    fontSize: 12, lineHeight: "17px", fontWeight: 600, whiteSpace: "nowrap",
-                    background: variant?.id === v.id ? C.accG2 : "transparent",
-                    color: variant?.id === v.id ? C.acc : C.mut,
-                  }}
-                >
-                  {v.name}
-                </button>
-              ))}
+          {switchable.length > 1 ? (
+            <select
+              aria-label="Profil für diesen Bezug"
+              title="Gilt nur für diesen Bezug"
+              value={profile.id}
+              onChange={(e) => { pickProfile(Number(e.target.value)); }}
+              style={{
+                height: 26, boxSizing: "border-box", padding: "0 6px", maxWidth: mobile ? "100%" : 280, borderRadius: 7,
+                fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                background: C.bg, border: `1px solid ${C.accB}`, color: C.txt,
+              }}
+            >
+              {switchable.map((p) => <option key={p.id} value={p.id} style={optionStyle}>{p.name}</option>)}
+            </select>
+          ) : (
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>
+              {profile.name}
             </span>
+          )}
+          {showVariantButtons ? (
+            <select
+              aria-label={t("preshot.variant")}
+              title={t("preshot.variant")}
+              value={variant?.id ?? ""}
+              onChange={(e) => { pickVariant(Number(e.target.value)); }}
+              style={{
+                height: 26, boxSizing: "border-box", padding: "0 6px", maxWidth: mobile ? "100%" : 170, borderRadius: 7,
+                fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                background: C.bg, border: `1px solid ${C.accB}`, color: C.acc,
+              }}
+            >
+              {variants.map((v) => <option key={v.id} value={v.id} style={optionStyle}>{v.name}</option>)}
+            </select>
           ) : variantByBasket ? null : (
             <span style={{ fontSize: 12, fontWeight: 600, color: C.acc }}>{variant?.name ?? ""}</span>
           )}
@@ -705,11 +1130,11 @@ export function PreShotDialog({
               style={{
                 height: 19, boxSizing: "border-box", padding: "0 4px", maxWidth: mobile ? "100%" : 150, borderRadius: 7, fontSize: 12,
                 order: mobile ? 2 : undefined,
-                fontFamily: "inherit", background: "transparent", cursor: "pointer",
+                fontFamily: "inherit", background: C.bg, cursor: "pointer",
                 border: `1px solid ${basketMismatch ? C.warnSoft : C.accB}`, color: basketMismatch ? C.warnSoft : C.mut,
               }}
             >
-              {baskets.map((b) => <option key={b.id} value={b.id} title={b.description ?? undefined}>{b.name}</option>)}
+              {baskets.map((b) => <option key={b.id} value={b.id} title={b.description ?? undefined} style={optionStyle}>{b.name}</option>)}
             </select>
           )}
           {/* Yield — tappable, opens the per-shot override popup. Shown even
@@ -800,7 +1225,7 @@ export function PreShotDialog({
               setSettingTemp(false);
             }
           }
-          if (bgDiffers || bbDiffers) {
+          if ((bgDiffers || bbDiffers) && tempOverrideC === null) {
             const machine = bgDiffers ? currentBgSetpointC! : currentBbSetpointC!;
             const deg = (v: number) => (Number.isInteger(v) ? String(v) : lang === "de" ? v.toFixed(1).replace(".", ",") : v.toFixed(1));
             // Am Tablet so hoch wie die alte Knopfzeile (der Dialog darf nicht
@@ -860,10 +1285,24 @@ export function PreShotDialog({
                 color: C.mut,
               }}
             >
-              {t("preshot.profileTargetTemp")}{" "}
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", color: C.txtS }}>
-                {target.toFixed(1)} °C
-              </span>
+              {tempOverrideC !== null ? "Temperatur" : t("preshot.profileTargetTemp")}{" "}
+              <button
+                type="button"
+                onClick={onSetFromProfile ? openTempPopup : undefined}
+                title="Temperatur ändern"
+                style={{ background: "transparent", border: "none", padding: 0, cursor: onSetFromProfile ? "pointer" : "default", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: tempOverrideC !== null ? C.acc : C.txtS, fontWeight: tempOverrideC !== null ? 700 : 400 }}
+              >
+                {(tempOverrideC ?? target).toFixed(1)} °C
+              </button>
+              {tempOverrideC !== null && (
+                <>
+                  {" "}
+                  <span style={{ fontSize: 9, fontWeight: 700, color: C.acc, background: C.accG, border: `1px solid ${C.accB}`, borderRadius: 6, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    geändert
+                  </span>
+                </>
+              )}
+              {settingTemp && " · wird gesetzt …"}
               {ist !== null && (
                 <>
                   {" · "}
@@ -884,9 +1323,10 @@ export function PreShotDialog({
             {t("preshot.loading")}
           </div>
         ) : (
-          <div style={twoCol ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", columnGap: 16 } : undefined}>
+          <div style={twoCol ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gridTemplateRows: showRpm ? "auto auto auto" : "auto auto", columnGap: 12 } : undefined}>
+            <div style={{ ...groupBox, marginBottom: twoCol ? 0 : 8, ...(twoCol ? { display: "grid", gridTemplateRows: "subgrid", gridRow: `1 / span ${showRpm ? 3 : 2}` } : {}) }}>
             {/* Bean — immer, ausser beim Messlauf */}
-            {!measurement && <Field label={t("preshot.bean")} style={cell(0, true)}>
+            {!measurement && <Field label={t("preshot.bean")} style={row(1)}>
               <BeanPicker
                 beans={beans}
                 value={beanId}
@@ -936,9 +1376,65 @@ export function PreShotDialog({
               )}
             </Field>}
 
+            {/* Dose */}
+            {fields.dose && (
+              <Field label={`${t("preshot.dose")} (g)`} style={row(2)}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" aria-label="Dosis 0,5 g weniger" onClick={() => bumpDose(-1)} style={doseBtn}>−</button>
+                  <input
+                    ref={doseRef}
+                    style={{ ...numInputStyle, flex: 1, minWidth: 0, textAlign: "center", ...(doseMissing ? { borderColor: C.red } : {}) }}
+                    type="number"
+                    step={0.1}
+                    min={0}
+                    value={doseG}
+                    onChange={(e) => {
+                      setDoseG(e.target.value);
+                      if (e.target.value.trim() !== "") setDoseWarn(false);
+                    }}
+                  />
+                  <button type="button" aria-label="Dosis 0,5 g mehr" onClick={() => bumpDose(1)} style={doseBtn}>+</button>
+                  {scaleDoseG !== null && (
+                    <button
+                      type="button"
+                      onClick={() => { setDoseG(String(scaleDoseG)); setDoseWarn(false); }}
+                      title={t("preshot.doseFromScale")}
+                      aria-label={t("preshot.doseFromScale")}
+                      style={{
+                        flexShrink: 0, display: "flex", alignItems: "center", gap: 5, padding: "0 10px", borderRadius: 7,
+                        border: `1px solid ${alpha(C.acc, 0.55)}`, background: alpha(C.acc, 0.12), color: C.acc,
+                        fontSize: 13, fontFamily: "'JetBrains Mono', monospace", cursor: "pointer", whiteSpace: "nowrap",
+                      }}
+                    >
+                      <Scale size={14} />
+                      {fmtG(scaleDoseG)} g
+                    </button>
+                  )}
+                </div>
+                {doseEl}
+                {doseMissing && (
+                  <div style={{ fontSize: 11.5, color: C.red, marginTop: 5 }}>
+                    {t("preshot.doseMissing")}
+                    {lastDoseG !== null && (
+                      <>
+                        {" · "}
+                        <button
+                          onClick={() => { setDoseG(String(lastDoseG)); setDoseWarn(false); }}
+                          style={{ background: "transparent", border: "none", padding: 0, color: C.acc, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
+                        >
+                          {t("preshot.doseLast").replace("{g}", dec(String(lastDoseG)))}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </Field>
+            )}
+            </div>
+            <div style={{ ...groupBox, marginBottom: twoCol ? 0 : 8, ...(twoCol ? { display: "grid", gridTemplateRows: "subgrid", gridRow: `1 / span ${showRpm ? 3 : 2}` } : {}) }}>
             {/* Grinder */}
             {fields.grinder && (
-              <Field label={t("preshot.grinder")} style={cell(1)}>
+              <Field label={t("preshot.grinder")} style={row(1)}>
                 <select
                   style={inputStyle}
                   value={grinderId === null ? "" : String(grinderId)}
@@ -958,14 +1454,16 @@ export function PreShotDialog({
 
             {/* Grind setting */}
             {fields.grindSetting && (
-              <Field label={t("preshot.grindSetting")} aside={grindAside} style={cell(3)}>
+              <Field label={t("preshot.grindSetting")} aside={grindAside} style={row(2)}>
                 <GrindStepper value={grindSetting} onChange={(v) => { setGrindSetting(v); setGrindSource(null); }} inputStyle={numInputStyle} />
+                {adviceEl}
+                {noteEl}
               </Field>
             )}
 
             {/* RPM — only when the selected grinder supports it */}
             {showRpm && (
-              <Field label={t("preshot.grinderRpm")} style={cell(4)}>
+              <Field label={t("preshot.grinderRpm")} style={row(3)}>
                 <input
                   style={{
                     ...numInputStyle,
@@ -994,58 +1492,7 @@ export function PreShotDialog({
               </Field>
             )}
 
-            {/* Dose */}
-            {fields.dose && (
-              <Field label={`${t("preshot.dose")} (g)`} style={cell(2)}>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    ref={doseRef}
-                    style={{ ...numInputStyle, flex: 1, minWidth: 0, ...(doseMissing ? { borderColor: C.red } : {}) }}
-                    type="number"
-                    step={0.1}
-                    min={0}
-                    value={doseG}
-                    onChange={(e) => {
-                      setDoseG(e.target.value);
-                      if (e.target.value.trim() !== "") setDoseWarn(false);
-                    }}
-                  />
-                  {scaleDoseG !== null && (
-                    <button
-                      type="button"
-                      onClick={() => { setDoseG(String(scaleDoseG)); setDoseWarn(false); }}
-                      title={t("preshot.doseFromScale")}
-                      aria-label={t("preshot.doseFromScale")}
-                      style={{
-                        flexShrink: 0, display: "flex", alignItems: "center", gap: 5, padding: "0 10px", borderRadius: 7,
-                        border: `1px solid ${alpha(C.acc, 0.55)}`, background: alpha(C.acc, 0.12), color: C.acc,
-                        fontSize: 13, fontFamily: "'JetBrains Mono', monospace", cursor: "pointer", whiteSpace: "nowrap",
-                      }}
-                    >
-                      <Scale size={14} />
-                      {fmtG(scaleDoseG)} g
-                    </button>
-                  )}
-                </div>
-                {doseMissing && (
-                  <div style={{ fontSize: 11.5, color: C.red, marginTop: 5 }}>
-                    {t("preshot.doseMissing")}
-                    {lastDoseG !== null && (
-                      <>
-                        {" · "}
-                        <button
-                          onClick={() => { setDoseG(String(lastDoseG)); setDoseWarn(false); }}
-                          style={{ background: "transparent", border: "none", padding: 0, color: C.acc, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
-                        >
-                          {t("preshot.doseLast").replace("{g}", dec(String(lastDoseG)))}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </Field>
-            )}
-
+            </div>
           </div>
         )}
         </div>
@@ -1072,6 +1519,9 @@ export function PreShotDialog({
           </aside>
         )}
         </div>
+
+        </>
+        )}
 
         <div ref={actionRef}>
         {/* Sieb passt nicht zur Variante (weich — der zweite Klick startet trotzdem) */}
@@ -1114,7 +1564,7 @@ export function PreShotDialog({
         )}
 
         {/* Footer */}
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
           <button
             onClick={onClose}
             disabled={starting}
@@ -1162,6 +1612,51 @@ export function PreShotDialog({
         </div>
       </div>
     </div>
+
+    {/* Temperatur-Fenster (Einfachansicht): setzt Brenngruppe + Boiler auf den eingegebenen Wert. */}
+    {tempPopupOpen && (
+      <div
+        onClick={() => { setTempPopupOpen(false); }}
+        style={{ position: "fixed", inset: 0, background: C.overlay, backdropFilter: "blur(4px)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      >
+        <div
+          onClick={(e) => { e.stopPropagation(); }}
+          style={{ background: C.cardElev, border: `1px solid ${C.bdrL}`, borderRadius: 14, padding: "20px 24px 24px", width: "min(340px, 92vw)", boxShadow: `0 8px 40px ${alpha(C.black, 0.5)}` }}
+        >
+          <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 600, color: C.txt }}>Temperatur setzen</h2>
+          <Field label="Temperatur (°C)">
+            <input
+              autoFocus
+              style={numInputStyle}
+              type="number"
+              inputMode="decimal"
+              step={0.5}
+              value={tempInput}
+              onChange={(e) => { setTempInput(e.target.value); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void applyTemp(false); }}
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: C.mut, margin: "-4px 0 12px" }}>
+            Stellt Brühgruppe und Boiler der Maschine auf diesen Wert (70–105 °C).
+            {profile.targetTempC !== null && ` Profil-Soll: ${profile.targetTempC.toFixed(1)} °C.`}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => { void applyTemp(true); }}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "transparent", border: `1px solid ${C.bdr}`, color: C.mut, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Profil-Soll
+            </button>
+            <button
+              onClick={() => { void applyTemp(false); }}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: C.accG2, border: `1px solid ${C.accB}`, color: C.acc, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Setzen
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Yield-override popup — direct numeric entry, no bounds (Entscheidung 5). */}
     {yieldPopupOpen && (

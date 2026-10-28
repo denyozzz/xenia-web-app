@@ -81,6 +81,20 @@ function brewTypeError(body: Record<string, unknown>): string | null {
 }
 
 function ratingError(body: Record<string, unknown>): string | null {
+  if ("preferredProfileId" in body) {
+    const p = body["preferredProfileId"];
+    if (p !== null && p !== undefined && !(typeof p === "number" && Number.isInteger(p) && p > 0)) {
+      return "preferredProfileId must be a positive integer (or null)";
+    }
+  }
+  for (const k of ["arabicaPct", "robustaPct"]) {
+    if (k in body) {
+      const v = body[k];
+      if (v !== null && v !== undefined && !(typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 100 && v % 10 === 0)) {
+        return k + " must be an integer 0..100 in steps of 10 (or null)";
+      }
+    }
+  }
   if (!("rating" in body)) return null;
   const v = body["rating"];
   if (v === null || v === undefined) return null;

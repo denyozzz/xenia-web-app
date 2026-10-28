@@ -16,3 +16,8 @@ backend/data/
 
 # Logs
 *.log
+
+# lokal
+data/
+*.bak*
+*.orig

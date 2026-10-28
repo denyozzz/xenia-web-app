@@ -62,6 +62,12 @@ export function registerMaintenanceRoutes(
   });
 
   // "Später" — snooze the banner for SNOOZE_MS.
+  // Snooze aufheben (die App ruft das nach dem naechsten beendeten Bezug auf).
+  app.post("/api/maintenance/backflush/unsnooze", async () => {
+    settingsRepo.set("backflush_snooze_until", "0");
+    return { ok: true };
+  });
+
   app.post("/api/maintenance/backflush/snooze", async () => {
     settingsRepo.set("backflush_snooze_until", String(Date.now() + SNOOZE_MS));
     return { ok: true } as ApiResponse;

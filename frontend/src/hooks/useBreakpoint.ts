@@ -24,8 +24,9 @@ const MOBILE_MAX_SHORT_SIDE = 500;
 const DESKTOP_MIN_WIDTH = 1280;
 
 function computeBreakpoint(): Breakpoint {
-  const shortSide = Math.min(window.innerWidth, window.innerHeight);
-  if (shortSide < MOBILE_MAX_SHORT_SIDE) return "mobile";
+  const screenShort = Math.min(window.screen.width, window.screen.height);
+  if (screenShort > 0 && screenShort < MOBILE_MAX_SHORT_SIDE) return "mobile";
+  if (window.innerWidth < 420) return "mobile";
   if (window.innerWidth >= DESKTOP_MIN_WIDTH) return "desktop";
   return "tablet";
 }

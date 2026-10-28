@@ -132,6 +132,7 @@ interface VariantRow {
   sort_order: number;
   default_basket_id: number | null;
   yield_g: number | null;
+  dose_g: number | null;
   script_id: number | null;
   brew_steps: string | null;
   same_as_id: number | null;
@@ -145,6 +146,7 @@ function toVariant(r: VariantRow): ProfileVariant {
     sortOrder: r.sort_order,
     defaultBasketId: r.default_basket_id,
     yieldG: r.yield_g,
+    doseG: r.dose_g ?? null,
     scriptId: r.script_id,
     brewSteps: r.brew_steps ? (JSON.parse(r.brew_steps) as BrewProfile) : null,
     sameAsId: r.same_as_id,
@@ -336,14 +338,14 @@ export function saveVariants(profileId: number, list: VariantInput[]): void {
       if (v.id != null && keep.has(v.id)) {
         db.prepare(
           `UPDATE profile_variant SET legacy_slot = ?, name = ?, sort_order = ?, default_basket_id = ?, yield_g = ?, script_id = ?, brew_steps = ?,
-             phase_names = ?, same_as_id = NULL, updated_at = ? WHERE id = ?`,
-        ).run(slot(i), name, i, v.defaultBasketId, v.yieldG, v.scriptId, steps(v.brewSteps), names(v), now, v.id);
+             phase_names = ?, dose_g = ?, same_as_id = NULL, updated_at = ? WHERE id = ?`,
+        ).run(slot(i), name, i, v.defaultBasketId, v.yieldG, v.scriptId, steps(v.brewSteps), names(v), v.doseG ?? null, now, v.id);
         return v.id;
       }
       const r = db.prepare(
-        `INSERT INTO profile_variant (profile_id, legacy_slot, name, sort_order, default_basket_id, yield_g, script_id, brew_steps, phase_names, same_as_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-      ).run(profileId, slot(i), name, i, v.defaultBasketId, v.yieldG, v.scriptId, steps(v.brewSteps), names(v), now, now) as { lastInsertRowid: number };
+        `INSERT INTO profile_variant (profile_id, legacy_slot, name, sort_order, default_basket_id, yield_g, script_id, brew_steps, phase_names, dose_g, same_as_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      ).run(profileId, slot(i), name, i, v.defaultBasketId, v.yieldG, v.scriptId, steps(v.brewSteps), names(v), v.doseG ?? null, now, now) as { lastInsertRowid: number };
       return Number(r.lastInsertRowid);
     });
     list.forEach((v, i) => {
@@ -361,3 +363,18 @@ export function saveVariants(profileId: number, list: VariantInput[]): void {
   }
 }
 
+/** Im Profil hinterlegte Dosis der Variante, die dieses Sieb faehrt (erste mit Dosis); sonst null. */
+export function variantDoseFor(profileId: number, basketId: number): number | null {
+  const row = getDb()
+    .prepare("SELECT dose_g FROM profile_variant WHERE profile_id = ? AND default_basket_id = ? AND dose_g IS NOT NULL ORDER BY sort_order, id LIMIT 1")
+    .get(profileId, basketId) as { dose_g: number } | undefined;
+  return row?.dose_g ?? null;
+}
+
+/** Die Variante dieses Profils, die dieses Sieb faehrt (erste nach Reihenfolge); sonst null. */
+export function variantIdFor(profileId: number, basketId: number): number | null {
+  const row = getDb()
+    .prepare("SELECT id FROM profile_variant WHERE profile_id = ? AND default_basket_id = ? ORDER BY sort_order, id LIMIT 1")
+    .get(profileId, basketId) as { id: number } | undefined;
+  return row?.id ?? null;
+}

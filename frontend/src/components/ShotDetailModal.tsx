@@ -206,6 +206,7 @@ export function ShotDetailModal({ shot, mobile, onClose, onEdit, onDelete, onUpd
     channelingSeverity: shot.channelingSeverity ?? null,
     tasteTags: shot.tasteTags ?? [],
     grindNote: shot.grindNote,
+    doseNote: shot.doseNote ?? null,
     notes: shot.notes ?? "",
     vsPrev: shot.vsPrev ?? null,
     vsPrevShotId: shot.vsPrevShotId ?? null,

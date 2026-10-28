@@ -15,7 +15,10 @@ import {
 } from "./lib/profile-temp-reset-store.js";
 import { scriptToTimeline } from "../../shared/src/script-timeline.js";
 import { registerMachineRoutes } from "./routes/machine.js";
+import { registerSwitchRoutes } from "./routes/switches.js";
+import { registerSayingsRoutes } from "./routes/sayings.js";
 import { registerMachineAddressRoute } from "./routes/machine-address.js";
+import { registerVirtualMachineRoute } from "./routes/virtual-machine.js";
 import { registerScriptRoutes } from "./routes/scripts.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
 import { registerProfileImportRoutes } from "./routes/profile-import.js";
@@ -26,7 +29,11 @@ import { registerCoffeeRoutes } from "./routes/coffees.js";
 import { registerGrinderRoutes } from "./routes/grinders.js";
 import { registerNetworkRoutes } from "./routes/network.js";
 import { registerBasketRoutes } from "./routes/baskets.js";
+import { registerBasketVariantRoutes } from "./routes/basket-variants.js";
+import { registerBeanHiddenVariantRoutes } from "./routes/bean-hidden-variants.js";
+import { registerUiPrefRoutes } from "./routes/ui-prefs.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
+import { registerCareReminderRoutes } from "./routes/care-reminders.js";
 import { registerBestBrewRoutes } from "./routes/best-brew.js";
 import { SqliteScriptRepo } from "./db/script-repo.js";
 import { SqliteMaintenanceLogRepo } from "./db/maintenance-repo.js";
@@ -178,6 +185,12 @@ async function start(): Promise<void> {
     );
 
   registerMachineRoutes(app, client, () => hub.getLastFrame(), poller, profileTempReset);
+  registerVirtualMachineRoute(app, {
+    client,
+    settings: settingsRepo,
+    isBrewing: () => recorder.activeShotId !== null || flowHoldDriver.isActive(),
+    log: (msg) => rootLogger.info({ tag: "machine", event: "virtual_machine" }, msg),
+  });
   registerMachineAddressRoute(app, {
     client,
     settings: settingsRepo,
@@ -203,8 +216,14 @@ async function start(): Promise<void> {
   registerCoffeeRoutes(app, coffeeRepo, beanRepo, bestBrewRepo);
   registerGrinderRoutes(app, grinderRepo);
   registerBasketRoutes(app, basketRepo);
+  registerBasketVariantRoutes(app, basketRepo, () => hub.broadcastProfilesChanged());
+  registerBeanHiddenVariantRoutes(app, settingsRepo);
+  registerUiPrefRoutes(app, settingsRepo);
+  registerSwitchRoutes(app, client);
+  registerSayingsRoutes(app);
   registerNetworkRoutes(app, shotRepo);
   registerMaintenanceRoutes(app, settingsRepo, maintenanceLog);
+  registerCareReminderRoutes(app, settingsRepo, maintenanceLog);
   registerBestBrewRoutes(app, bestBrewRepo);
   registerDriveRoutes(
     app,

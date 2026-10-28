@@ -869,6 +869,7 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
   const [sortKey, setSortKey] = useState<SortKey>("recent");
   const [filterKey, setFilterKey] = useState<FilterKey>("available");
   const [q, setQ] = useState("");
+  const [roastKey, setRoastKey] = useState<"light" | "medium" | "dark" | null>(null);
   const [coffeeEditor, setCoffeeEditor] = useState<Coffee | "new" | null>(null);
   const [roastingEditor, setRoastingEditor] = useState<{ coffee: CoffeeView; roasting?: Bean } | null>(null);
   const [sheet, setSheet] = useState<Bean | null>(null);
@@ -929,8 +930,13 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
       }
     };
     const rank = (c: CoffeeView) => (c.activeRoasting !== null ? 0 : 1) * 2 + (c.favourite ? 0 : 1);
-    return coffees.filter((c) => pass(c) && hit(c)).sort((a, b) => rank(a) - rank(b) || cmp(a, b));
-  }, [coffees, sortKey, filterKey, q]);
+    const roastOf = (c: CoffeeView): "light" | "medium" | "dark" | null =>
+      c.roastLevel === "light" || c.roastLevel === "light-medium" ? "light"
+      : c.roastLevel === "medium" || c.roastLevel === "medium-dark" ? "medium"
+      : c.roastLevel === "dark" ? "dark" : null;
+    const roastOk = (c: CoffeeView) => roastKey === null || roastOf(c) === roastKey;
+    return coffees.filter((c) => pass(c) && hit(c) && roastOk(c)).sort((a, b) => rank(a) - rank(b) || cmp(a, b));
+  }, [coffees, sortKey, filterKey, q, roastKey]);
 
   // Sortenfoto: im Browser verkleinern, als Base64 hochladen, Liste neu holen.
   // Ein fehlgeschlagener Upload muss es sagen — ein Bild, das einfach nicht
@@ -1024,6 +1030,7 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
             onStart={(p, variantId, basketId) => network.onStart(p, variantId, basketId, startBean)}
             onOpenHistory={network.onOpenHistory}
             onOpenProfile={network.onOpenProfile}
+            onOpenShot={(shotId) => onOpenShot(shotId, selected.id)}
           />
         );
         return mobile
@@ -1051,6 +1058,26 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 2px 11px" }}>
         <SearchField q={q} setQ={setQ} />
         <FilterControl filterKey={filterKey} setFilterKey={setFilterKey} />
+      </div>
+      {/* Schnellfilter Roestgrad */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 2px 11px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: C.mut, marginRight: 2 }}>Röstgrad</span>
+        {([["light", "Hell"], ["medium", "Mittel"], ["dark", "Dunkel"]] as const).map(([k, label]) => {
+          const on = roastKey === k;
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setRoastKey(on ? null : k)}
+              style={{
+                padding: "6px 14px", borderRadius: 16, fontSize: 12, fontFamily: "inherit", cursor: "pointer",
+                background: on ? C.accG2 : C.bg, border: `1px solid ${on ? C.accB : C.bdr}`, color: on ? C.acc : C.mut, fontWeight: on ? 700 : 500,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
       {coffees.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: C.mut, fontSize: 13 }}>

@@ -1346,6 +1346,7 @@ export function applySchema(): void {
   migrateShotRatingThumbsToInt(db);
   addColumnIfMissing(db, "shot", "taste_tags",         "TEXT");
   addColumnIfMissing(db, "shot", "grind_note",         "TEXT CHECK(grind_note IN ('finer','ok','coarser'))");
+  addColumnIfMissing(db, "shot", "dose_note",          "TEXT CHECK(dose_note IN ('less','ok','more'))");
 
   // Extraction model v2: the single `extraction_balance` (1–5 sour↔bitter) axis
   // is replaced by two independent flavour axes (acidity/bitterness) + two
@@ -1528,6 +1529,9 @@ export function applySchema(): void {
       brew_type       TEXT CHECK(brew_type IN ('espresso','filter','omni')),
       flavor_notes    TEXT,               -- JSON array of strings
       notes           TEXT,               -- general coffee note (e.g. "8 Tage ruhen, Blend")
+      preferred_profile_id INTEGER,       -- bevorzugtes Profil (Startseite)
+      arabica_pct     INTEGER,            -- Anteil Arabica in %
+      robusta_pct     INTEGER,            -- Anteil Robusta in %
       favourite       INTEGER NOT NULL DEFAULT 0,
       rating          TEXT CHECK(rating IN ('thumbs_down','meh','thumbs_up')),  -- canonical
       created_at      INTEGER NOT NULL,   -- unix ms
@@ -1536,6 +1540,9 @@ export function applySchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_coffee_updated_at ON coffee(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_coffee_favourite  ON coffee(favourite DESC);
+  `);
+  ensureCoffeePreferredProfile(db);
+  db.exec(`
 
     -- bean = "Röstung" (charge/bag). All master data lives on coffee.
     -- §3g: status is the PHYSICAL axis (stock/frozen/thawed/archived); the
@@ -1693,6 +1700,8 @@ export function applySchema(): void {
   `);
   // Phasennamen fuer Skript-Kurven (JSON, je Phasen-Index) — die Maschine kennt keine.
   addColumnIfMissing(db, "profile_variant", "phase_names", "TEXT");
+  // Dosis der Variante in g (leer = Vorgabe aus dem Sieb).
+  addColumnIfMissing(db, "profile_variant", "dose_g", "REAL");
   // Profil-Art (Schnitt 3): Bezug oder Wartung steht am Profil statt am Skript.
   // Einmalig beim Anlegen der Spalte aus der Kategorie des Skripts der ersten
   // Variante (Uebersteuerung vor Automatik) — danach entscheidet nur der Editor.
@@ -1707,6 +1716,8 @@ export function applySchema(): void {
   // Archiv (Flavio 25.10.): gefahrene, aber ueberholte Profile verschwinden aus Liste
   // und Favoriten, bleiben aber fuer Historie und Skripte da. Umkehrbar.
   addColumnIfMissing(db, "profile", "archived", "INTEGER NOT NULL DEFAULT 0");
+  // Signale (Sekunden ab Start, JSON-Liste) — gelten fuers ganze Profil.
+  addColumnIfMissing(db, "profile", "beep_times", "TEXT");
 
   const freshVariantColumn = !(db.prepare("PRAGMA table_info(shot)").all() as Array<{ name: string }>).some((c) => c.name === "variant_id");
   addColumnIfMissing(db, "shot", "variant_id", "INTEGER REFERENCES profile_variant(id) ON DELETE SET NULL");
@@ -1782,6 +1793,16 @@ function widenCheck(db: DatabaseSync, table: string, column: string, values: str
 export function migrateBasketDetails(db: DatabaseSync): void {
   addColumnIfMissing(db, "basket", "description", "TEXT");
   addColumnIfMissing(db, "basket", "nominal_dose_g", "REAL");
+  addColumnIfMissing(db, "basket", "target_yield_g", "REAL");
+  // Variantenname = Schaltflaeche im Dashboard. Beim Anlegen der Spalte bekommen die drei Siebe mit der
+  // kleinsten Nenndosis Single / Double / Triple - so benannte die App neue Profile bisher nach Rang.
+  const hadVariantName = (db.prepare("PRAGMA table_info(basket)").all() as Array<{ name: string }>).some((c) => c.name === "variant_name");
+  addColumnIfMissing(db, "basket", "variant_name", "TEXT");
+  if (!hadVariantName) {
+    const rows = db.prepare("SELECT id FROM basket WHERE nominal_dose_g IS NOT NULL ORDER BY nominal_dose_g, id LIMIT 3").all() as Array<{ id: number }>;
+    const names = ["Single", "Double", "Triple"];
+    rows.forEach((r, i) => { db.prepare("UPDATE basket SET variant_name = ? WHERE id = ?").run(names[i]!, r.id); });
+  }
 }
 
 /** Profil-Art aus der Kategorie des Skripts der ersten Variante (Uebersteuerung vor Automatik). */
@@ -1805,4 +1826,14 @@ export function migrateBackflushToProfiles(db: DatabaseSync): void {
     .prepare(`SELECT DISTINCT profile_id AS id FROM profile_variant WHERE script_id IN (${scriptIds.map(() => "?").join(",")}) ORDER BY profile_id`)
     .all(...scriptIds) as { id: number }[]).map((r) => r.id);
   db.prepare("INSERT INTO settings (key, value) VALUES ('backflush_profile_ids', ?)").run(profileIds.join(","));
+}
+
+/** Bevorzugtes Profil je Sorte: Spalte nachrüsten (idempotent). */
+function ensureCoffeePreferredProfile(db: { prepare(sql: string): { all(): unknown[] }; exec(sql: string): void }): void {
+  const cols = db.prepare("PRAGMA table_info(coffee)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "preferred_profile_id")) {
+    db.exec("ALTER TABLE coffee ADD COLUMN preferred_profile_id INTEGER");
+  }
+  if (!cols.some((c) => c.name === "arabica_pct")) db.exec("ALTER TABLE coffee ADD COLUMN arabica_pct INTEGER");
+  if (!cols.some((c) => c.name === "robusta_pct")) db.exec("ALTER TABLE coffee ADD COLUMN robusta_pct INTEGER");
 }

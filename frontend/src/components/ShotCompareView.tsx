@@ -150,7 +150,7 @@ export function ShotCompareView({ a, b, mobile, variantName, onOpenShot, onClose
         label: `${t("shotRating.acidity")} / ${t("shotRating.bitterness")}`,
         a: `${sa.acidity ?? "–"} / ${sa.bitterness ?? "–"}`, b: `${sb.acidity ?? "–"} / ${sb.bitterness ?? "–"}`, delta: null,
       },
-      { label: t("shotRating.channeling"), a: channeling(sa), b: channeling(sb), delta: null },
+      ...(false ? [{ label: t("shotRating.channeling"), a: channeling(sa), b: channeling(sb), delta: null }] : []),
       { label: t("history.compare.grindNote"), a: grindNote(sa), b: grindNote(sb), delta: null },
     ];
     return [

@@ -1,3 +1,6 @@
+import { VirtualFab } from "./components/VirtualFab.js";
+import { BatteryIndicator } from "./components/BatteryIndicator.js";
+import { DoseAskModal } from "./components/DoseAskModal.js";
 /**
  * App root — Phase 1 Step 3.
  *
@@ -22,7 +25,8 @@ import { useProfiles } from "./hooks/useProfiles.js";
 import { useBaskets, basketName } from "./hooks/useBaskets.js";
 import type { ShotFilters } from "./hooks/useShots.js";
 import { useNavigation, NavGuardContext } from "./hooks/useNavigation.js";
-import { useBackflush } from "./hooks/useBackflush.js";
+import { useCareReminders } from "./hooks/useCareReminders.js";
+import { rememberSteam, wakeFromEco } from "./ecoWake.js";
 import { useScripts } from "./hooks/useScripts.js";
 import { useShotExecute } from "./hooks/useShotExecute.js";
 import { useShotSamples } from "./hooks/useShotSamples.js";
@@ -31,6 +35,8 @@ import { useChartSettings } from "./hooks/useChartSettings.js";
 import { useBrewByWeightSettings } from "./hooks/useBrewByWeightSettings.js";
 import { Sidebar, STATE_CONFIG, stateLabel } from "./components/Sidebar.js";
 import type { ViewId } from "./components/Sidebar.js";
+import { ThemeFab } from "./components/ThemeFab.js";
+import { useSimple } from "./viewMode.js";
 import { SetpointModal } from "./components/SetpointModal.js";
 import { MachineErrorLine } from "./components/MachineErrorLine.js";
 import { PreShotDialog } from "./components/PreShotDialog.js";
@@ -44,6 +50,7 @@ import { useTranslation } from "./i18n/index.js";
 import { Dashboard } from "./views/Dashboard.js";
 import { Profiles } from "./views/Profiles.js";
 import { Settings } from "./views/Settings.js";
+import { Switches } from "./views/Switches.js";
 import { Beans } from "./views/Beans.js";
 import { History } from "./views/History.js";
 import type { DriveStage, MachineState, Profile, RecentShot, Shot } from "@shared/types";
@@ -101,6 +108,7 @@ function isReviewed(shot: Shot): boolean {
     shot.channeling === true ||
     (shot.tasteTags?.length ?? 0) > 0 ||
     shot.grindNote != null ||
+    shot.doseNote != null ||
     (shot.notes != null && shot.notes.trim() !== "")
   );
 }
@@ -120,6 +128,7 @@ export default function App() {
   const { connectionState, machineState, frame, setpoints, activeShot, lastEndedShot, lastUpdatedShot, maintenance, maintenanceDone, dismissMaintenanceDone, profilesRev, driveStage } = useXeniaFrame();
   const { t } = useTranslation();
   const breakpoint = useBreakpoint();
+  const simple = useSimple();
   const control = useMachineControl();
 
   // Rueckweg: der Ort (Ansicht, offener Editor, Sorte, Historie) steht im
@@ -127,6 +136,10 @@ export default function App() {
   const nav = useNavigation();
   const { loc } = nav;
   const activeView = loc.view;
+  // Einfache Ansicht hat kein Menue: andere Seiten sind dort nicht erreichbar -> zurueck aufs Dashboard.
+  useEffect(() => {
+    if (simple && loc.view !== "dashboard") nav.replace({ view: "dashboard" });
+  }, [simple, loc.view]); // eslint-disable-line react-hooks/exhaustive-deps
   const [gaugeModal, setGaugeModal] = useState<GaugeTarget | null>(null);
   // Pre-shot dialog: opened by every start path, cleared on start/cancel.
   // initialValues is set only for the "repeat" flow (from a recent-shot card);
@@ -149,6 +162,18 @@ export default function App() {
   // Post-shot review: opens automatically once when a shot ends. The ref tracks
   // which shot was already offered, so skipping/saving doesn't re-open it.
   const [reviewShot, setReviewShot] = useState<Shot | null>(null);
+  // Rueckfrage "Dosis fuer diese Bohne uebernehmen?" - erst nach der Bewertung.
+  const pendingDoseRef = useRef<{ beanId: number; variantId: number; variantName: string; doseG: number; armed: boolean } | null>(null);
+  const [doseAsk, setDoseAsk] = useState<{ beanId: number; variantId: number; variantName: string; doseG: number } | null>(null);
+  useEffect(() => {
+    const p = pendingDoseRef.current;
+    if (!p) return;
+    if (reviewShot) { p.armed = true; return; }
+    if (p.armed) {
+      pendingDoseRef.current = null;
+      setDoseAsk({ beanId: p.beanId, variantId: p.variantId, variantName: p.variantName, doseG: p.doseG });
+    }
+  }, [reviewShot]);
   const reviewedShotIdRef = useRef<number | null>(null);
   // Phasenton: nur das Geraet, das den App-Bezug gestartet hat, piept — wenn
   // eine Stufe mit Ton endet, auch die letzte am Bezugsende.
@@ -206,13 +231,50 @@ export default function App() {
 
   const { profiles, createProfile, updateProfile, deleteProfile, reorderProfiles, refresh: refreshProfiles } = useProfiles();
   const { baskets } = useBaskets();
-  const backflush = useBackflush();
-  // Rückspül-Reminder: a profile whose script is one of the "counts-as-backflush"
-  // scripts → enables the one-tap "Jetzt rückspülen" in the banner.
+  const care = useCareReminders();
+  // Patch 126: Pflege-Erinnerungen neu laden, wenn ein Wartungslauf startet (der Lauf ist dann schon
+  // protokolliert) oder endet, und alle 10 Minuten (Tageswechsel auf dem dauerhaft offenen Tablet).
+  useEffect(() => {
+    if (maintenance || maintenanceDone) void care.refetch();
+  }, [maintenance?.startedAt, maintenanceDone?.startedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const timer = setInterval(() => { void care.refetch(); }, 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [care.refetch]);
+  // Eco-Aufwecken: merken, ob der Dampfboiler vor dem Eco an war (nur wenn die Maschine heizt/bereit ist).
+  const steamNowRef = useRef(false);
+  steamNowRef.current = frame?.steamBoilerStatus === 2;
+  useEffect(() => {
+    if (machineState === "ready" || machineState === "heating") rememberSteam(frame?.steamBoilerStatus === 2);
+  }, [machineState, frame?.steamBoilerStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Später" liegt auf dem Server; nach dem nächsten beendeten Bezug wieder einblenden.
+  const bfShotId = useRef<number | null>(lastEndedShot?.id ?? null);
+  useEffect(() => {
+    const id = lastEndedShot?.id ?? null;
+    if (id !== null && id !== bfShotId.current) {
+      void fetch("/api/care-reminders/unsnooze", { method: "POST" }).then(() => care.refetch());
+    }
+    bfShotId.current = id;
+  }, [lastEndedShot?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Patch 124: Rueckspuelen-Anzeige im Kopf und "Jetzt rueckspuelen" kommen aus den Pflege-Erinnerungen.
+  // Massgeblich ist die eingeschaltete Rueckspuel-Erinnerung (auto = Wartungsprofile waehlbar), die als Naechstes faellig wird.
+  const nextFlush = useMemo(() => {
+    const on = care.items.filter((c) => c.auto && c.enabled);
+    if (on.length === 0) return null;
+    return on.reduce((x, y) => (y.dueInDays < x.dueInDays ? y : x));
+  }, [care.items]);
+  // Patch 131: Anzeige und Knopf oben gehoeren immer zu "ohne Fettloeser" (solange es an ist); "mit" kommt als Hinweis.
+  const tileFlush = useMemo(
+    () => care.items.find((c) => c.id === "flush-water" && c.enabled) ?? nextFlush,
+    [care.items, nextFlush],
+  );
+  const flushDue = tileFlush?.due ?? false;
   const backflushRunProfile = useMemo(() => {
-    const ids = backflush.status?.profileIds ?? [];
+    const ids = tileFlush?.profileIds ?? [];
     return profiles.find((p) => ids.includes(p.id)) ?? null;
-  }, [backflush.status?.profileIds, profiles]);
+  }, [tileFlush, profiles]);
+  // Wartungsprofile, deren Lauf als Rueckspuelen zaehlt (vorher Abtropfschale leeren).
+  const flushIds = useMemo(() => care.items.flatMap((c) => c.profileIds), [care.items]);
   const { scripts, syncScripts, refreshList: refreshScriptList, refetch: refetchScripts, deleteScript, createScript, updateScript } = useScripts();
   const [scriptsSyncing, setScriptsSyncing] = useState(false);
   const handleEditorOpen = useCallback(() => {
@@ -258,7 +320,7 @@ export default function App() {
     if (profile.kind === "maintenance") {
       // A backflush rinses several times into the drip tray — confirm it was
       // emptied first, otherwise it overflows onto the counter.
-      if ((backflush.status?.profileIds ?? []).includes(profile.id)) {
+      if (flushIds.includes(profile.id)) {
         setBackflushConfirm({ profile, variantId: variant?.id ?? null });
         return;
       }
@@ -266,7 +328,7 @@ export default function App() {
       return;
     }
     setPreShot({ profile, variantId: variant?.id ?? null });
-  }, [backflush.status?.profileIds, runMaintenance]);
+  }, [flushIds, runMaintenance]);
 
   // Flow-hold drive: a profile with brewSteps runs the app-side paddle-driven
   // flow controller instead of a Xenia script. Same pre-shot dialog collects
@@ -444,6 +506,7 @@ export default function App() {
   const stateConf = STATE_CONFIG[displayState];
 
   const isMobile = breakpoint === "mobile";
+//  const isMobile = false; 
   const isBrewing = activeShot !== null;
 
   // Profilliste: neue oder an der Maschine geloeschte Skripte fallen beim Oeffnen
@@ -630,11 +693,12 @@ export default function App() {
         {/* Main flex row: Sidebar + Content */}
         {/* On mobile the sidebar is not inline — it lives in the drawer below. */}
         <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-          {!isMobile && (
+          {!isMobile && !simple && (
             <Sidebar
               connectionState={connectionState}
               machineState={machineState}
               frame={frame}
+              steamTargetBar={setpoints?.steamBoilerTargetPressureBar}
               collapsed={sidebarCollapsed}
               activeView={activeView}
               onNavigate={handleNavigate}
@@ -655,6 +719,7 @@ export default function App() {
           >
             {activeView === "dashboard" && (
               <Dashboard
+              reviewOpen={reviewShot !== null}
                 frame={frame}
                 setpoints={setpoints}
                 connectionState={connectionState}
@@ -683,7 +748,7 @@ export default function App() {
                 maintenance={maintenance}
                 maintenanceDone={
                   maintenanceDone !== null &&
-                  (backflush.status?.profileIds ?? []).includes(maintenanceDone.profileId)
+                  flushIds.includes(maintenanceDone.profileId)
                     ? maintenanceDone
                     : null
                 }
@@ -691,19 +756,51 @@ export default function App() {
                 samples={samples}
                 xSettings={chartXSettings}
                 recentRefreshKey={recentRefreshKey}
+                onExecute={handleExecute}
+                onExecuteDrive={handleExecuteDrive}
+                onBlockedStart={() => { if (startBlocked) control.reportError(startBlocked); }}
+                scripts={scripts}
+                onPowerOn={async () => { await control.setPower(true, true); }}
+                onPowerOnNoSteam={async () => { await control.setPower(true, false); }}
+                onEditProfile={simple ? undefined : (id) => nav.go({ view: "profiles", editor: id })}
+                onEditCoffee={simple ? undefined : (id) => nav.go({ view: "beans", coffeeId: id })}
+                onStartBean={(p, variantId, beanId) => {
+                  if (startBlocked) { control.reportError(startBlocked); return; }
+                  setPreShot({ profile: p, variantId, beanId });
+                }}
                 canStartBrew={canStartBrew}
                 onRepeatShot={handleRepeat}
-                backflushDue={backflush.status?.due ?? false}
-                backflushDaysAgo={backflush.status?.daysAgo ?? null}
+                simple={simple}
+                onSimplePower={async (on) => {
+                  if (on && machineState === "eco") await wakeFromEco(control, () => steamNowRef.current);
+                  else await control.setPower(on, on ? true : undefined);
+                }}
+                onSimpleSteam={async (on) => { await control.setSteam(on); }}
+                backflushDue={flushDue}
+                backflushDaysAgo={tileFlush?.daysAgo ?? null}
+                backflushNext={tileFlush ? (tileFlush.id === "flush-cleaner" ? "mit Fettlöser" : "ohne Fettlöser") : null}
+                backflushDueInDays={tileFlush?.dueInDays ?? null}
                 backflushCanRun={backflushRunProfile !== null}
                 onBackflushRun={() => {
                   if (!backflushRunProfile) return;
                   handleExecute(backflushRunProfile, null);
-                  // The run logs itself at MA_STATUS 1→3; refetch shortly after.
-                  setTimeout(() => { void backflush.refetch(); }, 4000);
+                  // Der Lauf wird beim Start protokolliert; kurz danach neu laden.
+                  setTimeout(() => { void care.refetch(); }, 4000);
                 }}
-                onBackflushDone={() => { void backflush.markDone(); }}
-                onBackflushSnooze={() => { void backflush.snooze(); }}
+                careDue={care.items.filter((c) => c.due).map((c) => ({
+                  id: c.id, title: c.title, hint: c.hint, daysAgo: c.daysAgo,
+                  runProfileId: profiles.find((p) => c.profileIds.includes(p.id))?.id ?? null,
+                }))}
+                onCareRun={(id) => {
+                  const ids = care.items.find((c) => c.id === id)?.profileIds ?? [];
+                  const p = profiles.find((x) => ids.includes(x.id));
+                  if (!p) return;
+                  handleExecute(p, null);
+                  // Der Lauf wird beim Start protokolliert; kurz danach neu laden.
+                  setTimeout(() => { void care.refetch(); }, 4000);
+                }}
+                onCareDone={(id) => { void care.done(id); }}
+                onCareSnooze={(id) => { void care.snooze(id); }}
                 onStop={async () => {
                   if (activeShot) await stopShot(activeShot.id);
                 }}
@@ -740,6 +837,8 @@ export default function App() {
                 connectionState={connectionState}
               />
             )}
+            {activeView === "switches" && <Switches />}
+            <><ThemeFab /><VirtualFab /><BatteryIndicator /></>
             {activeView === "beans" && (
               <Beans
                 mobile={isMobile}
@@ -819,6 +918,7 @@ export default function App() {
                 connectionState={connectionState}
                 machineState={machineState}
                 frame={frame}
+                steamTargetBar={setpoints?.steamBoilerTargetPressureBar}
                 collapsed={false}
                 activeView={activeView}
                 onNavigate={(view) => {
@@ -836,23 +936,25 @@ export default function App() {
         {preShot && (
           <PreShotDialog
             profile={preShot.profile}
+            profiles={profiles}
             variantId={preShot.variantId}
             basketId={preShot.basketId}
             beanId={preShot.beanId}
             suggest={preShot.suggest}
-            hasCmd27For={(v) =>
-              scripts.find((s) => s.id === effectiveVariant(preShot.profile, v).scriptId)?.hasCmd27 ?? false
+            hasCmd27For={(v, p) =>
+              scripts.find((s) => s.id === effectiveVariant(p ?? preShot.profile, v).scriptId)?.hasCmd27 ?? false
             }
             initialValues={preShot.initialValues}
             onStart={async (payload, choice) => {
               // Die Variante entscheidet: Stufen laufen im App-Antrieb, ein Skript
               // an der Maschine. Gilt fuer JEDEN Einstieg (Wiederholen, Chip, Liste).
-              const inApp = variantRunsInApp(preShot.profile, choice.variant);
+              const prof = choice.profile ?? preShot.profile; // im Dialog gewaehltes Profil (nur dieser Bezug)
+              const inApp = variantRunsInApp(prof, choice.variant);
               toneArmedRef.current = inApp;
               const err = inApp
-                ? await startDrive(preShot.profile.id, choice, payload)
+                ? await startDrive(prof.id, choice, payload)
                 : await shotExecute.execute({
-                    profileId: preShot.profile.id,
+                    profileId: prof.id,
                     shotSize: choice.shotSize,
                     variantId: choice.variant.id,
                     basketId: choice.basketId,
@@ -863,6 +965,9 @@ export default function App() {
               // (History row-↻, History detail, Profiles 1×/2×, fav chip, …).
               if (!err) toDashboard();
               else toneArmedRef.current = false;
+              if (!err && choice.doseChanged && payload.doseG != null && payload.beanId != null) {
+                pendingDoseRef.current = { beanId: payload.beanId, variantId: choice.variant.id, variantName: choice.variant.name, doseG: payload.doseG, armed: false };
+              }
               return err;
             }}
             onClose={() => { setPreShot(null); }}
@@ -904,6 +1009,8 @@ export default function App() {
           />
         )}
 
+        {doseAsk && <DoseAskModal ask={doseAsk} onClose={() => setDoseAsk(null)} />}
+
         {/* Post-shot review — auto-opens once per ended shot, fully skippable */}
         {reviewShot && (
           <RatingModal
@@ -918,6 +1025,7 @@ export default function App() {
               channelingSeverity: reviewShot.channelingSeverity ?? null,
               tasteTags: reviewShot.tasteTags ?? [],
               grindNote: reviewShot.grindNote ?? null,
+              doseNote: reviewShot.doseNote ?? null,
               notes: reviewShot.notes ?? "",
               vsPrev: reviewShot.vsPrev ?? null,
               vsPrevShotId: reviewShot.vsPrevShotId ?? null,

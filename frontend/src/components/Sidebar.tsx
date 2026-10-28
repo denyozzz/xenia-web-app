@@ -25,6 +25,7 @@ import {
   LayoutDashboard,
   Power,
   Settings,
+  ToggleLeft,
   X,
 } from "lucide-react";
 import { SteamIcon } from "./icons/SteamIcon.js";
@@ -38,6 +39,9 @@ import { t, useTranslation } from "../i18n/index.js";
 // ---------------------------------------------------------------------------
 // State → colour + label mapping (exported for re-use in App.tsx TopBar)
 // ---------------------------------------------------------------------------
+
+import { useRef as useRefEco } from "react";
+import { wakeFromEco } from "../ecoWake.js";
 
 export interface StateConfig {
   color: string;
@@ -83,13 +87,15 @@ export type ViewId =
   | "profiles"
   | "history"
   | "beans"
-  | "settings";
+  | "settings"
+  | "switches";
 
 const navItems = (): { id: ViewId; label: string; Icon: LucideIcon }[] => [
   { id: "dashboard", label: t("ui.sidebar.nav.dashboard"), Icon: LayoutDashboard },
   { id: "profiles",  label: t("ui.sidebar.nav.profiles"),  Icon: Layers },
   { id: "history",   label: t("ui.sidebar.nav.history"),   Icon: Clock },
   { id: "beans",     label: t("ui.sidebar.nav.beans"),     Icon: Bean },
+  { id: "switches",  label: "Schalter",  Icon: ToggleLeft },
   { id: "settings",  label: t("ui.sidebar.nav.settings"),  Icon: Settings },
 ];
 
@@ -103,6 +109,8 @@ interface SidebarProps {
   frame: LiveFrame | null;
   /** When true, render the compact 64px icon-only rail (no labels). */
   collapsed: boolean;
+  /** Zieldruck des Dampfboilers (bar) fuer die Knopffarbe. */
+  steamTargetBar?: number;
   activeView: ViewId;
   onNavigate: (view: ViewId) => void;
   control: MachineControlHook;
@@ -126,6 +134,7 @@ export function Sidebar({
   control,
   onToggleCollapse,
   onClose,
+  steamTargetBar,
 }: SidebarProps) {
   useTranslation(); // re-render on language change (labels come from t())
   // Treat 'connecting' as 'disconnected' for display purposes
@@ -140,25 +149,33 @@ export function Sidebar({
   const isBusy = displayState === "brewing" || displayState === "draining";
   const steamOn = frame?.steamBoilerStatus === 2;
   const controlDisabled = displayState === "disconnected" || control.isLoading;
+  // Eco: der Ein-Knopf weckt auf (Dampf wie vor dem Eco) statt auszuschalten.
+  const steamNowRef = useRefEco(steamOn);
+  steamNowRef.current = steamOn;
 
   // ---- Power button: binary toggle — OFF (grey) or ON (green) ----
   // When machine is off/disconnected → show "OFF", click turns on
   // When machine is in any other state → show "ON", click turns off
   const powerIsOff = isMachineOff;
-  const powerColor = powerIsOff ? C.dim : C.grn;
-  const powerBg    = powerIsOff ? C.dimG : C.grnD;
+  // Aufheizen (Statusfarbe rot) -> rot; sonst eingeschaltet -> gruen.
+  const powerHeating = !powerIsOff && stateConf.color === C.red;
+  const powerColor = powerIsOff ? C.dim : powerHeating ? C.red : C.grn;
+  const powerBg    = powerIsOff ? C.dimG : powerHeating ? C.redD : C.grnD;
   const powerBorder = `1px solid ${powerColor}30`;
   const powerLabel = powerIsOff ? t("ui.machine.powerOff") : t("ui.machine.powerOn");
 
   // ---- Steam button ----
-  const steamColor = steamOn ? C.red : C.blu;
-  const steamBg    = steamOn ? C.redD : C.bluD;
+  // aus = blau; an und Druck unter Ziel = rot (heizt); Zieldruck erreicht = gruen.
+  const steamP = frame?.steamBoilerPressureBar ?? 0;
+  const steamReady = steamOn && steamTargetBar !== undefined && steamP >= steamTargetBar - 0.1;
+  const steamColor = isMachineOff ? C.dim : !steamOn ? C.blu : steamReady ? C.grn : C.red;
+  const steamBg    = isMachineOff ? C.dimG : !steamOn ? C.bluD : steamReady ? C.grnD : C.redD;
   const steamLabel = steamOn ? t("ui.machine.steamHot") : t("ui.machine.steamCold");
 
   // ---- ECO button: binary toggle ----
   // eco → blue active; off/disconnected → disabled; other → dimmed, click enters eco
-  const ecoDisabled = controlDisabled || isMachineOff || isBusy;
-  const ecoColor = isEco ? C.blu : C.mut;
+  const ecoDisabled = controlDisabled || isBusy;
+  const ecoColor = isEco ? C.blu : C.grn;
   const ecoBg    = isEco ? C.bluD : "transparent";
 
   const width = collapsed ? 64 : 200;
@@ -184,22 +201,12 @@ export function Sidebar({
         style={{
           padding: collapsed ? "16px 0" : "16px 14px",
           borderBottom: `1px solid ${C.bdr}`,
-          display: "flex",
+          display: collapsed && !onClose ? "none" : "flex",
           alignItems: "center",
           justifyContent: "center",
           gap: 8,
         }}
       >
-        <div
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: stateConf.color,
-            flexShrink: 0,
-            animation: stateConf.pulse ? "xenia-pulse 1.5s ease-in-out infinite" : "none",
-          }}
-        />
         {!collapsed && (
           <span
             style={{
@@ -283,9 +290,12 @@ export function Sidebar({
       >
         {/* Power */}
         <button
-          onClick={() => { void control.setPower(powerIsOff); }}
+          onClick={() => {
+            if (isEco) void wakeFromEco(control, () => steamNowRef.current);
+            else void control.setPower(powerIsOff, powerIsOff ? true : undefined);
+          }}
           disabled={controlDisabled && !powerIsOff}
-          title={powerLabel}
+          title={isEco ? "Eco beenden (Dampf wie zuvor)" : powerLabel}
           style={{
             flex: collapsed ? undefined : 1,
             padding: collapsed ? "10px" : "8px 0",
@@ -335,11 +345,12 @@ export function Sidebar({
           {!collapsed && steamLabel}
         </button>
 
-        {/* ECO */}
+        {/* Ein ohne Dampfboiler — nur wenn die Maschine aus ist */}
+        {isMachineOff && (
         <button
-          onClick={() => { void control.setEco(!isEco); }}
+          onClick={() => { void control.setPower(true, false); }}
           disabled={ecoDisabled}
-          title="ECO"
+          title="Ohne Dampfboiler einschalten"
           style={{
             flex: collapsed ? undefined : 1,
             padding: collapsed ? "10px" : "8px 0",
@@ -359,8 +370,9 @@ export function Sidebar({
           }}
         >
           <Leaf size={12} />
-          {!collapsed && "ECO"}
+          {!collapsed && "Ohne Dampf"}
         </button>
+        )}
       </div>
 
       {/* Collapse / expand toggle — inline sidebar only (not in the drawer).

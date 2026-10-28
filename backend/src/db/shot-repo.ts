@@ -9,6 +9,7 @@ import type {
   StopMode,
   ShotCategory,
   GrindNote,
+  DoseNote,
   ChannelingSeverity,
   VsPrev,
   ShotCompare,
@@ -236,6 +237,12 @@ export interface ShotRepo {
   listRecentBrew(limit: number): RecentShot[];
   /** Schnitt 4: Startpunkt fuer neue Bohnen — juengster Bezug mit Profil + Sieb + Muehle und einer Sorte gleichen Roestgrads wie `beanId`. */
   findLastSameRoast(filter: { beanId: number; profileId: number; basketId: number; grinderId: number }): Shot | undefined;
+  /** Mahlgrad-Empfehlung aus den letzten Bezuegen mit gleicher Bohne, Muehle, Profil und gleichem Sieb; null ohne bewertete Bezuege. */
+  grindAdvice(filter: { beanId: number; grinderId: number; profileId: number; basketId: number }): import("../grind-advice.js").GrindAdvice | null;
+  /** Letzter Bezug mit Dosis-Bewertung (weniger/passt/mehr) fuer diese Bohne + dieses Sieb; null ohne. */
+  lastRatedDose(filter: { beanId: number; basketId: number }): { doseG: number; note: "less" | "ok" | "more"; startedAt: number } | null;
+  /** Notiz des letzten BEWERTETEN (feiner/groeber/passt) Bezugs mit gleicher Bohne, gleichem Profil und Sieb (und Muehle, wenn angegeben); null ohne Notiz. */
+  lastRatedNote(filter: { beanId: number; profileId: number; basketId: number; grinderId: number | null }): { notes: string; startedAt: number } | null;
   /** Schnitt 4: beendete Bezuege fuer das Netz Profil ↔ Bohne. */
   listNetworkShots(filter: { coffeeId?: number; profileId?: number }): NetShot[];
   /** Bewertung: der letzte beendete Bezug derselben Sorte vor diesem; null ohne Sorte. */
@@ -247,6 +254,8 @@ export interface ShotRepo {
 // ---------------------------------------------------------------------------
 // SQLite implementation
 // ---------------------------------------------------------------------------
+
+import { grindAdvice as computeGrindAdvice } from "../grind-advice.js";
 
 export class SqliteShotRepo implements ShotRepo {
   createShot(input: NewShot): number {
@@ -575,7 +584,7 @@ export class SqliteShotRepo implements ShotRepo {
                 s.grinder_id, g.name AS grinder_name,
                 s.grind_setting, s.grinder_rpm, s.dose_g, s.tds_percent, s.profile_set_temp_c,
                 s.acidity, s.bitterness, s.extraction_under, s.extraction_over, s.channeling, s.channeling_severity,
-                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note,
+                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note, s.dose_note,
                 CASE WHEN bb.shot_id IS NOT NULL THEN 1 ELSE 0 END AS is_best_brew
          FROM shot s
          LEFT JOIN profile p ON p.id = s.profile_id
@@ -634,6 +643,7 @@ export class SqliteShotRepo implements ShotRepo {
     }
     if (patch.tasteTags !== undefined)    { fields.push("taste_tags = ?");    values.push(patch.tasteTags === null ? null : JSON.stringify(patch.tasteTags)); }
     if (patch.grindNote !== undefined)    { fields.push("grind_note = ?");    values.push(patch.grindNote); }
+    if (patch.doseNote !== undefined)     { fields.push("dose_note = ?");     values.push(patch.doseNote); }
     if (patch.notes !== undefined)        { fields.push("notes = ?");         values.push(patch.notes); }
 
     if (fields.length === 0) {
@@ -732,6 +742,59 @@ export class SqliteShotRepo implements ShotRepo {
       )
       .get(...params) as unknown as RawShotRow | undefined;
     return row ? toShot(row) : undefined;
+  }
+
+  grindAdvice(filter: { beanId: number; grinderId: number; profileId: number; basketId: number }): import("../grind-advice.js").GrindAdvice | null {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM shot
+          WHERE bean_id = ? AND grinder_id = ? AND profile_id = ? AND basket_id = ?
+            AND category = 'brew' AND ended_at IS NOT NULL AND grind_setting IS NOT NULL
+          ORDER BY started_at DESC LIMIT 40`,
+      )
+      .all(filter.beanId, filter.grinderId, filter.profileId, filter.basketId) as unknown as RawShotRow[];
+    return computeGrindAdvice(
+      rows.map(toShot).map((s) => {
+        const note = s.grindNote as string | null;
+        return {
+          grindSetting: s.grindSetting,
+          grindNote: note === "finer" || note === "coarser" || note === "ok" ? note : null,
+          // Brew by Weight: Gewichtsstopp, dann ist die Dauer zwischen Bezuegen vergleichbar.
+          durationS: s.endedAt != null ? (s.endedAt - s.startedAt) / 1000 : null,
+          weightStop: s.stopMode === "app" || s.stopMode === "cmd27" || s.stopMode === "flowhold",
+          yieldActualG: s.yieldActualG ?? null,
+          yieldTargetG: s.yieldTargetG ?? null,
+          // Am Profil geendet (Skript/Stufen) statt am Gewicht: dann zaehlt die Menge bis dahin.
+          profileEnd: s.stopMode === "script_end",
+        };
+      }),
+    );
+  }
+
+  lastRatedDose(filter: { beanId: number; basketId: number }): { doseG: number; note: "less" | "ok" | "more"; startedAt: number } | null {
+    const row = getDb()
+      .prepare(
+        `SELECT dose_g, dose_note, started_at FROM shot
+          WHERE bean_id = ? AND basket_id = ? AND category = 'brew' AND ended_at IS NOT NULL
+            AND dose_note IS NOT NULL AND dose_g IS NOT NULL
+          ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get(filter.beanId, filter.basketId) as { dose_g: number; dose_note: "less" | "ok" | "more"; started_at: number } | undefined;
+    return row ? { doseG: row.dose_g, note: row.dose_note, startedAt: row.started_at } : null;
+  }
+
+  lastRatedNote(filter: { beanId: number; profileId: number; basketId: number; grinderId: number | null }): { notes: string; startedAt: number } | null {
+    // Der juengste bewertete gleiche Bezug entscheidet: hat er keine Notiz, gibt es keine - die aeltere gilt dann nicht mehr.
+    const row = getDb()
+      .prepare(
+        `SELECT notes, started_at FROM shot
+          WHERE bean_id = ? AND profile_id = ? AND basket_id = ? AND (? IS NULL OR grinder_id = ?)
+            AND category = 'brew' AND ended_at IS NOT NULL AND grind_note IS NOT NULL
+          ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get(filter.beanId, filter.profileId, filter.basketId, filter.grinderId, filter.grinderId) as { notes: string | null; started_at: number } | undefined;
+    const text = row?.notes?.trim() ?? "";
+    return row !== undefined && text !== "" ? { notes: text, startedAt: row.started_at } : null;
   }
 
   findLastSameRoast(filter: { beanId: number; profileId: number; basketId: number; grinderId: number }): Shot | undefined {
@@ -837,6 +900,7 @@ export class SqliteShotRepo implements ShotRepo {
                      WHEN s.profile_name IS NOT NULL THEN s.profile_name || ' (Profil gelöscht)'
                      ELSE '(Profil gelöscht)' END AS profile_name,
                 s.shot_size, s.variant_id, s.basket_id,
+                (SELECT bk.variant_name FROM basket bk WHERE bk.id = s.basket_id) AS variant_name,
                 s.bean_id, s.bean_label, c.name AS bean_name, c.roaster AS bean_roaster,
                 s.grinder_id, g.name AS grinder_name,
                 s.grind_setting, s.grinder_rpm, s.dose_g, s.yield_target_g, s.yield_actual_g,
@@ -896,6 +960,7 @@ interface RawShotRow {
   scale_lost: number;
   taste_tags: string | null;
   grind_note: string | null;
+  dose_note: string | null;
   brew_def_hash: string | null;
 }
 
@@ -961,12 +1026,14 @@ function toShot(row: RawShotRow): Shot {
     vsPrevShotId: row.vs_prev_shot_id ?? null,
     tasteTags: parseTasteTags(row.taste_tags),
     grindNote: (row.grind_note ?? null) as GrindNote | null,
+    doseNote: (row.dose_note ?? null) as DoseNote | null,
     brewDefHash: row.brew_def_hash ?? null,
   };
 }
 
 interface RawRecentShotRow {
   bean_label: string | null;
+  variant_name: string | null;
   id: number;
   variant_id: number | null;
   basket_id: number | null;
@@ -1013,6 +1080,7 @@ interface RawShotListRow {
   vs_prev_shot_id: number | null;
   taste_tags: string | null;
   grind_note: string | null;
+  dose_note: string | null;
   notes: string | null;
   bean_id: number | null;
   bean_name: string | null;
@@ -1053,6 +1121,7 @@ function toShotListItem(row: RawShotListRow): ShotListItem {
     vsPrevShotId: row.vs_prev_shot_id ?? null,
     tasteTags: parseTasteTags(row.taste_tags),
     grindNote: (row.grind_note ?? null) as GrindNote | null,
+    doseNote: (row.dose_note ?? null) as DoseNote | null,
     notes: row.notes,
     beanId: row.bean_id,
     beanLabel: row.bean_label ?? null,
@@ -1076,6 +1145,7 @@ function toRecentShot(row: RawRecentShotRow): RecentShot {
     profileId: row.profile_id,
     variantId: row.variant_id,
     basketId: row.basket_id,
+    variantName: row.variant_name ?? null,
     profileName: row.profile_name,
     shotSize: row.shot_size as RecentShot["shotSize"],
     beanId: row.bean_id,

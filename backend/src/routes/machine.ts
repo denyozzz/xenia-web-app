@@ -45,6 +45,14 @@ const onBody = {
   additionalProperties: false,
 } as const;
 
+/** Wie onBody, plus optional withSteam (nur für POST /api/machine/power). */
+const powerBody = {
+  type: "object",
+  required: ["on"],
+  properties: { on: { type: "boolean" }, withSteam: { type: "boolean" } },
+  additionalProperties: false,
+} as const;
+
 /** A setpoint the machine will accept — finite and inside the physical range. */
 const tempC = {
   type: "number",
@@ -113,10 +121,12 @@ export function registerMachineRoutes(
   // ---------------------------------------------------------------------------
   // POST /api/machine/power
   // ---------------------------------------------------------------------------
-  app.post("/api/machine/power", { schema: { body: onBody } }, async (req, reply) => {
-    const { on } = req.body as PowerRequest;
+  app.post("/api/machine/power", { schema: { body: powerBody } }, async (req, reply) => {
+    const { on, withSteam } = req.body as PowerRequest;
     try {
-      await client.machineControl(on ? resolveOnAction(getLastFrame()) : "0");
+      // Ein: explizit "1" (mit Dampfboiler) / "5" (ohne), sonst wie bisher nach SB_STATUS. Aus: "0".
+      const onAction = withSteam === undefined ? resolveOnAction(getLastFrame()) : withSteam ? "1" : "5";
+      await client.machineControl(on ? onAction : "0");
       const res: ApiResponse = { ok: true };
       return res;
     } catch (err) {

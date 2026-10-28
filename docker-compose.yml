@@ -1,0 +1,15 @@
+services:
+  xenia:
+    build: .
+    container_name: xenia
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+    environment:
+      MACHINE_IP: 192.168.178.90
+      PORT: 3000
+      DB_PATH: /data/xenia.db
+      FRONTEND_DIST: /app/frontend/dist
+      NODE_ENV: production
+    volumes:
+      - ./data:/data
