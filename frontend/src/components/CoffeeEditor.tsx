@@ -1,7 +1,6 @@
 import { BeanDoses } from "./BeanDoses.js";
 import { RoasterInput } from "./RoasterInput.js";
 import { QrImportPanel, type QrResult } from "./QrImportPanel.js"; // Patch 141
-import { AiImportPanel } from "./AiImportPanel.js"; // Patch 144
 /**
  * CoffeeEditor — modal to create or edit a Coffee (Sorte) — §3.4b master data.
  * Master data only (name, roaster, origin, processing, roast level, brew type,
@@ -9,7 +8,7 @@ import { AiImportPanel } from "./AiImportPanel.js"; // Patch 144
  */
 
 import { useState, useCallback, useEffect, KeyboardEvent } from "react";
-import { X, Plus, FileUp, Upload, AlertTriangle, ChevronDown, ChevronRight, QrCode, Sparkles } from "lucide-react";
+import { X, Plus, FileUp, Upload, AlertTriangle, ChevronDown, ChevronRight, QrCode } from "lucide-react";
 import { Toggle } from "./Toggle.js";
 import { useTranslation } from "../i18n/index.js";
 import type {
@@ -80,8 +79,7 @@ function Segmented<T extends string>({ options, value, onChange }: {
 interface Props {
   coffee?: Coffee;
   /** Patch 141: extra.qrImageCode = Foto des Roesters zu diesem Beanconqueror-Code als Bild uebernehmen. */
-  /** Patch 144: extra.imageFile = Packungsfoto (KI-Import) als Bild der neuen Sorte. */
-  onSave: (data: CoffeeCreatePayload | CoffeeUpdate, extra?: { qrImageCode?: string; imageFile?: File }) => Promise<void>;
+  onSave: (data: CoffeeCreatePayload | CoffeeUpdate, extra?: { qrImageCode?: string }) => Promise<void>;
   onClose: () => void;
   /** §3i: matcher for the single-JSON-import duplicate warning (create mode only). */
   match?: (name: string, roaster: string | null) => Promise<MatchCandidate[]>;
@@ -160,9 +158,6 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
   const [qrOpen, setQrOpen] = useState(false);
   const [qrInfo, setQrInfo] = useState<{ qr: string; hasImage: boolean } | null>(null);
   const [qrImage, setQrImage] = useState(true);
-  // Patch 144: KI-Import (ChatGPT).
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiImage, setAiImage] = useState<File | null>(null);
 
   const applyImport = useCallback((raw: string) => {
     setImportMsg(null);
@@ -334,8 +329,7 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
         };
         data.firstRoasting = firstRoasting;
       }
-      await onSave(data, aiImage ? { imageFile: aiImage }
-        : qrInfo && qrInfo.hasImage && qrImage ? { qrImageCode: qrInfo.qr } : undefined);
+      await onSave(data, qrInfo && qrInfo.hasImage && qrImage ? { qrImageCode: qrInfo.qr } : undefined);
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -344,7 +338,7 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
     }
   }, [name, roaster, country, region, farm, variety, processing, altMin, altMax,
       roastLevel, brewType, flavorNotes, notes, rating, favourite, prefProfile, arabicaPct, onSave, onClose, t,
-      isEdit, roastingOpen, rRoastDate, rBagSize, rPrice, rStatus, rActive, qrInfo, qrImage, aiImage]);
+      isEdit, roastingOpen, rRoastDate, rBagSize, rPrice, rStatus, rActive, qrInfo, qrImage]);
 
   const ROAST_SEG = [
     { value: "dark", label: t("beans.roastLevel.dark") },
@@ -410,7 +404,7 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
             {/* Patch 141: QR-Code (Beanconqueror) */}
             <div style={{ marginTop: 8 }}>
               {!qrOpen ? (
-                <button type="button" onClick={() => { setQrOpen(true); setAiOpen(false); setImportOpen(false); setImportMsg(null); }}
+                <button type="button" onClick={() => { setQrOpen(true); setImportOpen(false); setImportMsg(null); }}
                   style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "transparent", border: `1px dashed ${C.bdr2}`, borderRadius: 8, padding: "7px 12px", color: C.txtS, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                   <QrCode size={15} />QR-Code (Beanconqueror)
                 </button>
@@ -432,22 +426,6 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
                     Foto des Rösters als Bild übernehmen
                   </label>
                 </div>
-              )}
-            </div>
-            {/* Patch 144: Mit KI ausfüllen (ChatGPT) */}
-            <div style={{ marginTop: 8 }}>
-              {!aiOpen ? (
-                <button type="button" onClick={() => { setAiOpen(true); setQrOpen(false); setImportOpen(false); }}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "transparent", border: `1px dashed ${C.bdr2}`, borderRadius: 8, padding: "7px 12px", color: C.txtS, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                  <Sparkles size={15} />Mit KI ausfüllen (ChatGPT){aiImage ? " · Bild gewählt" : ""}
-                </button>
-              ) : (
-                <AiImportPanel
-                  image={aiImage}
-                  onImage={setAiImage}
-                  onCancel={() => setAiOpen(false)}
-                  onLoaded={(d) => { applyImport(JSON.stringify(d)); setAiOpen(false); }}
-                />
               )}
             </div>
           </div>

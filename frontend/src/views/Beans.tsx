@@ -1080,10 +1080,7 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
             if (coffeeEditor === "new") {
               const created = await api.createCoffee(data as Parameters<typeof api.createCoffee>[0]);
               // Patch 141: Foto des Roesters (Beanconqueror) als Bild der neuen Sorte.
-              // Patch 144: Packungsfoto aus dem KI-Import.
-              if (extra?.imageFile && created?.id != null) {
-                await handleImagePick(created.id, extra.imageFile);
-              } else if (extra?.qrImageCode && created?.id != null) {
+              if (extra?.qrImageCode && created?.id != null) {
                 try {
                   const r = await fetch(`/api/beanconqueror/qr-image?code=${encodeURIComponent(extra.qrImageCode)}`);
                   if (r.ok) {
