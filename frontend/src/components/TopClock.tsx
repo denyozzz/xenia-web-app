@@ -18,6 +18,22 @@ export function TopClock({ machineState, mobile, hideTimers, showSaying }: { mac
   const prev = useRef(machineState);
   const sayBase = useRef(Math.floor(Math.random() * 100000));
   const sayStart = useRef(Date.now());
+  // Patch 138: Stand der Eco-/Aus-Zaehlung vom Server (at = Zeitpunkt der Antwort auf diesem Geraet).
+  const [srv, setSrv] = useState<{ at: number; onSinceAgoMs: number | null; lastAgoMs: number } | null>(null);
+  useEffect(() => {
+    let off = false;
+    const load = () => {
+      fetch("/api/eco-timer").then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (off || !d || typeof d.lastAgoMs !== "number") return;
+        setSrv({ at: Date.now(), onSinceAgoMs: typeof d.onSinceAgoMs === "number" ? d.onSinceAgoMs : null, lastAgoMs: d.lastAgoMs });
+      }).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 20000);
+    // Nach einem Zustandswechsel kurz warten, bis der Server ihn gesehen hat.
+    const soon = setTimeout(load, 1500);
+    return () => { off = true; clearInterval(id); clearTimeout(soon); };
+  }, [machineState]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -43,8 +59,11 @@ export function TopClock({ machineState, mobile, hideTimers, showSaying }: { mac
   }, [machineState]);
 
   const active = !isOff(machineState) && machineState !== "brewing" && machineState !== "draining";
-  const warm = onSince.current === null ? 0 : onSince.current + WARMUP_MIN * 60000;
-  const left = (min: number) => Math.max(0, Math.ceil((Math.max(last.current + min * 60000, warm) - now) / 1000));
+  // Patch 138: Einschaltzeit und letzte Aktivitaet vom Server; ohne Antwort wie bisher im Browser gezaehlt.
+  const onSinceMs = srv ? (srv.onSinceAgoMs === null ? null : srv.at - srv.onSinceAgoMs) : onSince.current;
+  const lastMs = srv ? srv.at - srv.lastAgoMs : last.current;
+  const warm = onSinceMs === null ? 0 : onSinceMs + WARMUP_MIN * 60000;
+  const left = (min: number) => Math.max(0, Math.ceil((Math.max(lastMs + min * 60000, warm) - now) / 1000));
   const ecoLeft = left(ecoMin);
   const pdLeft = left(pdMin);
   const time = new Date(now).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });

@@ -34,6 +34,7 @@ import { registerBeanHiddenVariantRoutes } from "./routes/bean-hidden-variants.j
 import { registerUiPrefRoutes } from "./routes/ui-prefs.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerCareReminderRoutes } from "./routes/care-reminders.js";
+import { EcoTracker, registerEcoTimerRoutes } from "./eco-timer.js";
 import { SqliteScriptRepo } from "./db/script-repo.js";
 import { SqliteMaintenanceLogRepo } from "./db/maintenance-repo.js";
 import { SqliteProfileRepo } from "./db/profile-repo.js";
@@ -223,6 +224,9 @@ async function start(): Promise<void> {
   registerNetworkRoutes(app, shotRepo);
   registerMaintenanceRoutes(app, settingsRepo, maintenanceLog);
   registerCareReminderRoutes(app, settingsRepo, maintenanceLog);
+  // Patch 138: Eco-/Aus-Zaehlung auf dem Server.
+  const ecoTracker = new EcoTracker(settingsRepo);
+  registerEcoTimerRoutes(app, ecoTracker);
   registerDriveRoutes(
     app,
     flowHoldDriver,
@@ -266,6 +270,7 @@ async function start(): Promise<void> {
     machineLog.warn({ event: "disconnected" }, "Machine disconnected — retrying with backoff");
     // Issue #1: bleibt sie im Skript-Bezug weg, beendet der Recorder die Aufzeichnung.
     recorder.setMachineOnline(false);
+    ecoTracker.onState("disconnected");
   });
 
   poller.on("error", (err) => {
@@ -275,6 +280,7 @@ async function start(): Promise<void> {
 
   // Wire recorder to poller frames — drives the shot state machine
   poller.on("frame", (frame) => recorder.onFrame(frame));
+  poller.on("frame", (frame) => ecoTracker.onState(frame.machineState));
   // Flow-hold drive control loop — one PI tick per frame (only active during a drive).
   poller.on("frame", (frame) => flowHoldDriver.onFrame(frame));
   // K-1 startup interlock: an MA=5 on the first frame with no active driver is an
