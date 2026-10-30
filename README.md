@@ -1,3 +1,46 @@
+<!-- Patch 139: Abschnitt zum Fork -->
+# Xenia App – Fork von denyozzz
+
+Erweiterte Fassung der [Xenia Web App von fhold](https://github.com/fhold/xenia-web-app) für die Xenia DBL.
+Ziel: Kaffee machen mit möglichst wenig Tippen – die **Bohne** steht im Mittelpunkt, Feinheiten nur bei Bedarf.
+Updates des Originals werden regelmäßig übernommen.
+
+## Was anders ist
+
+- **Startbildschirm:** aktive Bohnen (hell/dunkel) mit Knöpfen Single/Double/Triple – ein Tipp startet mit Profil, Dosis und Ratio dieser Bohne
+- **Zwei Ansichten:** *Einfach* (Maschine/Dampf, Uhr, Bohnen) und *Experte* (Messwerte, Profile, letzte Bezüge, Pflege)
+- **Start-Dialog:** vorausgefüllt, Mahlgrad-Empfehlung aus den letzten Bezügen, Dosis/Yield/Temperatur antippbar
+- **Bewertung:** Mahlgrad zu fein/passt/zu grob, Dosis weniger/passt/mehr – fließt in die nächste Empfehlung
+- **Ein/Aus:** mit oder ohne Dampfboiler, Restzeit bis Eco/Aus neben der Uhr, Belegung der Maschinentasten
+- **Pflege-Erinnerungen:** Rückspülen mit/ohne Fettlöser, Duschsieb; Wartungslauf wird erkannt
+- **Bohnenseite:** je Profil und Sieb aufklappbare Bezüge (Zeit Ist/Soll, Mahlgrad, Dosis)
+- **Tablet:** Vollbild-PWA, Batterieanzeige, optional Sprüche unter der Uhr, virtuelle Maschine zum Ausprobieren
+
+## Installation (Docker)
+
+```bash
+git clone https://github.com/denyozzz/xenia-web-app.git
+cd xenia-web-app
+nano docker-compose.yml        # MACHINE_IP = IP-Adresse der eigenen Xenia
+docker compose up -d --build
+```
+
+Die App läuft dann unter `http://<server-ip>:3010`. Datenbank und eigene Dateien liegen in `./data`
+(eigene Spruchliste: `data/sprueche.txt`, eine Zeile pro Spruch).
+
+**Update:**
+
+```bash
+git pull && docker compose up -d --build
+```
+
+⚠ Die App hat **kein Login** – nur im eigenen Netz bzw. über VPN betreiben, nie ins Internet freigeben
+(siehe Sicherheitshinweise unten). Nutzung auf eigene Gefahr, Lizenz GPL-3.0 wie das Original.
+
+---
+
+*Originalbeschreibung von fhold (englisch). Hinweis: `update.sh` ist für die Installation ohne Docker gedacht.*
+
 # Xenia App
 
 Self-hosted web app for the **Xenia DBL** espresso machine: live brew dashboard,
