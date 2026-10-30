@@ -5,7 +5,7 @@
  * ohne "Speichern" angelegt).
  */
 import { useRef, useState } from "react";
-import { Camera, QrCode } from "lucide-react";
+import { Camera, ImageIcon, QrCode } from "lucide-react";
 import theme from "../theme.js";
 import { decodeQrFromFile } from "../lib/qrDecode.js";
 
@@ -18,6 +18,7 @@ export function QrImportPanel({ onLoaded, onCancel }: { onLoaded: (r: QrResult) 
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pickRef = useRef<HTMLInputElement>(null); // Patch 142: Bild aus der Mediathek
 
   const load = async (code: string) => {
     const c = code.trim();
@@ -43,9 +44,13 @@ export function QrImportPanel({ onLoaded, onCancel }: { onLoaded: (r: QrResult) 
     setErr(null);
     setBusy("Lese QR-Code …");
     let code: string | null = null;
-    try { code = await decodeQrFromFile(f); } catch { code = null; }
+    try { code = await decodeQrFromFile(f); } catch (ex) {
+      setBusy(null);
+      setErr(`Foto konnte nicht gelesen werden: ${ex instanceof Error ? ex.message : String(ex)}`);
+      return;
+    }
     setBusy(null);
-    if (!code) { setErr("Kein QR-Code im Foto erkannt. Bitte näher heran und scharf fotografieren."); return; }
+    if (!code) { setErr("Kein QR-Code im Foto erkannt. Den Code bildfüllend und scharf fotografieren – oder den Link einfügen (iPhone-Kamera: Code antippen → Link kopieren)."); return; }
     setText(code);
     await load(code);
   };
@@ -66,6 +71,11 @@ export function QrImportPanel({ onLoaded, onCancel }: { onLoaded: (r: QrResult) 
           <Camera size={15} />Foto vom QR-Code
         </button>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={(e) => void onPhoto(e)} style={{ display: "none" }} />
+        <button type="button" disabled={!!busy} onClick={() => pickRef.current?.click()} title="Foto oder Screenshot aus der Mediathek"
+          style={{ ...btn, background: "transparent", border: `1px solid ${C.bdr}`, color: C.txtS }}>
+          <ImageIcon size={15} />Bild wählen
+        </button>
+        <input ref={pickRef} type="file" accept="image/*" onChange={(e) => void onPhoto(e)} style={{ display: "none" }} />
         <input value={text} onChange={(e) => setText(e.target.value)} disabled={!!busy}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void load(text); } }}
           placeholder="https://beanconqueror.com/?qr=…"
