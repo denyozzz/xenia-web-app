@@ -164,6 +164,12 @@ export function QrImportPanel({ onLoaded, onCancel }: { onLoaded: (r: QrResult) 
       </div>
       {busy && <div style={{ color: C.mut, fontSize: 12, marginTop: 8 }}>{busy}</div>}
       {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
+      {/* Patch 146: Dank an Beanconqueror */}
+      <div style={{ fontSize: 11, color: C.mut, marginTop: 10 }}>
+        Die Angaben stammen von{" "}
+        <a href="https://beanconqueror.com" target="_blank" rel="noopener noreferrer" style={{ color: C.acc }}>Beanconqueror</a>
+        {" "}– vielen Dank an den Entwickler für die Erlaubnis!
+      </div>
       {live && (
         <LiveScanner
           onCode={(code) => { setLive(false); setText(code); void load(code); }}
