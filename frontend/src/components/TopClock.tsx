@@ -39,12 +39,20 @@ export function TopClock({ machineState, mobile, hideTimers, showSaying }: { mac
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+  // Patch 140: Eco-/Aus-Zeiten bei jedem Zustandswechsel und alle 5 Minuten neu von der Maschine lesen.
   useEffect(() => {
-    fetch("/api/switches").then((r) => r.json()).then((d) => {
-      setEcoMin(Number(d.ecoMin) || 0);
-      setPdMin(Number(d.powerdownMin) || 0);
-    }).catch(() => {});
-  }, []);
+    let off = false;
+    const load = () => {
+      fetch("/api/switches").then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (off || !d || typeof d.ecoMin !== "number" || typeof d.powerdownMin !== "number") return;
+        setEcoMin(d.ecoMin);
+        setPdMin(d.powerdownMin);
+      }).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 5 * 60000);
+    return () => { off = true; clearInterval(id); };
+  }, [machineState]);
   // Zusaetzliche Sprueche aus sprueche.txt im Datenordner (optional).
   useEffect(() => {
     fetch("/api/sayings").then((r) => r.json()).then((d) => {
