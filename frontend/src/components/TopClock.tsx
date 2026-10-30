@@ -49,7 +49,11 @@ export function TopClock({ machineState, mobile, hideTimers, showSaying }: { mac
   const pdLeft = left(pdMin);
   const time = new Date(now).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   const pool = extra.length > 0 ? [...SAYINGS, ...extra] : SAYINGS;
-  const saying = pool[(sayBase.current + Math.floor((now - sayStart.current) / SAYING_MS)) % pool.length];
+  // Patch 137: im Experten-Dashboard nur Sprueche, die in eine Zeile passen.
+  const expert = !hideTimers;
+  const short = expert ? pool.filter((s) => s.length <= 70) : pool;
+  const usePool = short.length > 0 ? short : pool;
+  const saying = usePool[(sayBase.current + Math.floor((now - sayStart.current) / SAYING_MS)) % usePool.length];
   const warn = (s: number) => (s < 60 ? theme.red : theme.mut);
 
   return (
@@ -64,7 +68,12 @@ export function TopClock({ machineState, mobile, hideTimers, showSaying }: { mac
         )}
       </div>
       {(showSaying ?? hideTimers) && (
-        <div style={{ fontSize: 13, fontStyle: "italic", color: theme.mut, maxWidth: 340, marginTop: 2 }}>{saying}</div>
+        expert ? (
+          // Patch 137: eine Zeile, feste Hoehe, traegt nicht zur Breite bei (width 0 / minWidth 100 %).
+          <div title={saying} style={{ fontSize: 13, fontStyle: "italic", color: theme.mut, marginTop: 2, height: 18, lineHeight: "18px", width: 0, minWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{saying}</div>
+        ) : (
+          <div style={{ fontSize: 13, fontStyle: "italic", color: theme.mut, maxWidth: 340, marginTop: 2 }}>{saying}</div>
+        )
       )}
     </div>
   );
