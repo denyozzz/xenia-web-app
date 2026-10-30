@@ -247,8 +247,6 @@ export interface ShotRepo {
   listNetworkShots(filter: { coffeeId?: number; profileId?: number }): NetShot[];
   /** Bewertung: der letzte beendete Bezug derselben Sorte vor diesem; null ohne Sorte. */
   findPreviousSameCoffee(id: number): ShotCompare["previous"];
-  /** Vergleich: die Referenz ★ derselben Sorte, ausser dieser Bezug ist es selbst. */
-  findReferenceSameCoffee(id: number): number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -584,14 +582,17 @@ export class SqliteShotRepo implements ShotRepo {
                 s.grinder_id, g.name AS grinder_name,
                 s.grind_setting, s.grinder_rpm, s.dose_g, s.tds_percent, s.profile_set_temp_c,
                 s.acidity, s.bitterness, s.extraction_under, s.extraction_over, s.channeling, s.channeling_severity,
+<<<<<<< HEAD
                 s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note, s.dose_note,
                 CASE WHEN bb.shot_id IS NOT NULL THEN 1 ELSE 0 END AS is_best_brew
+=======
+                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note
+>>>>>>> origin/main
          FROM shot s
          LEFT JOIN profile p ON p.id = s.profile_id
          LEFT JOIN bean b ON b.id = s.bean_id
          LEFT JOIN coffee c ON c.id = b.coffee_id
          LEFT JOIN grinder g ON g.id = s.grinder_id
-         LEFT JOIN best_brew bb ON bb.shot_id = s.id
          ${where}
          ORDER BY ${orderBy}
          LIMIT ? OFFSET ?`,
@@ -832,19 +833,6 @@ export class SqliteShotRepo implements ShotRepo {
       : null;
   }
 
-  findReferenceSameCoffee(id: number): number | null {
-    const row = getDb()
-      .prepare(
-        `SELECT bb.shot_id
-           FROM shot s
-           JOIN bean b ON b.id = s.bean_id
-           JOIN best_brew bb ON bb.coffee_id = b.coffee_id AND bb.shot_id <> s.id
-          WHERE s.id = ?`,
-      )
-      .get(id) as { shot_id: number } | undefined;
-    return row ? row.shot_id : null;
-  }
-
   listNetworkShots(filter: { coffeeId?: number; profileId?: number }): NetShot[] {
     const conds = ["s.category = 'brew'", "s.ended_at IS NOT NULL"];
     const params: number[] = [];
@@ -855,13 +843,11 @@ export class SqliteShotRepo implements ShotRepo {
         `SELECT s.id, s.started_at, s.profile_id, COALESCE(p.name, s.profile_name, '(Profil gelöscht)') AS profile_name,
                 s.variant_id, s.basket_id, s.grinder_id, b.coffee_id, c.name AS coffee_name, s.bean_label,
                 s.grind_setting, s.grind_note, s.rating, s.acidity, s.bitterness, s.extraction_under, s.extraction_over,
-                s.channeling, s.channeling_severity, s.taste_tags,
-                CASE WHEN bb.shot_id IS NOT NULL THEN 1 ELSE 0 END AS is_best
+                s.channeling, s.channeling_severity, s.taste_tags
            FROM shot s
            LEFT JOIN profile p ON p.id = s.profile_id
            LEFT JOIN bean b ON b.id = s.bean_id
            LEFT JOIN coffee c ON c.id = b.coffee_id
-           LEFT JOIN best_brew bb ON bb.shot_id = s.id
           WHERE ${conds.join(" AND ")}
           ORDER BY s.started_at`,
       )
@@ -887,7 +873,6 @@ export class SqliteShotRepo implements ShotRepo {
       channeling: r.channeling === 1,
       channelingSeverity: r.channeling_severity as NetShot["channelingSeverity"],
       tasteTags: r.taste_tags ? (JSON.parse(r.taste_tags as string) as string[]) : null,
-      isBestBrew: r.is_best === 1,
     }));
   }
 
@@ -1093,7 +1078,6 @@ interface RawShotListRow {
   dose_g: number | null;
   tds_percent: number | null;
   profile_set_temp_c: number | null;
-  is_best_brew: number;
 }
 
 function toShotListItem(row: RawShotListRow): ShotListItem {
@@ -1135,7 +1119,6 @@ function toShotListItem(row: RawShotListRow): ShotListItem {
     doseG: row.dose_g,
     tdsPercent: row.tds_percent,
     profileSetTempC: row.profile_set_temp_c,
-    isBestBrew: row.is_best_brew === 1,
   };
 }
 
