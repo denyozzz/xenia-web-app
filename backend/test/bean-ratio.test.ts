@@ -36,7 +36,7 @@ const prof = new SqliteProfileRepo().insert({ name: "P1", scriptIdSingle: null, 
 const store = new Map<string, string>();
 const settings = { get: (k: string) => store.get(k), getAll: () => new Map(store), insertIfAbsent: (k: string, v: string) => { if (!store.has(k)) store.set(k, v); }, set: (k: string, v: string) => { store.set(k, v); }, delete: (k: string) => { store.delete(k); } };
 const app = Fastify({ logger: false });
-registerShotRoutes(app, {} as never, new SqliteShotRepo(), {} as never, new SqliteBeanRepo(), new SqliteProfileRepo(), {} as never, {} as never, () => {}, {} as never, settings as never);
+registerShotRoutes(app, {} as never, new SqliteShotRepo(), {} as never, new SqliteBeanRepo(), new SqliteProfileRepo(), {} as never, () => {}, {} as never, settings as never);
 
 const put = (body: unknown) => app.inject({ method: "PUT", url: "/api/shots/coffee-ratio", payload: body as object });
 const defaults = async (b: number) => {

@@ -33,11 +33,7 @@ import { registerBasketVariantRoutes } from "./routes/basket-variants.js";
 import { registerBeanHiddenVariantRoutes } from "./routes/bean-hidden-variants.js";
 import { registerUiPrefRoutes } from "./routes/ui-prefs.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
-<<<<<<< HEAD
 import { registerCareReminderRoutes } from "./routes/care-reminders.js";
-import { registerBestBrewRoutes } from "./routes/best-brew.js";
-=======
->>>>>>> origin/main
 import { SqliteScriptRepo } from "./db/script-repo.js";
 import { SqliteMaintenanceLogRepo } from "./db/maintenance-repo.js";
 import { SqliteProfileRepo } from "./db/profile-repo.js";
@@ -226,11 +222,7 @@ async function start(): Promise<void> {
   registerSayingsRoutes(app);
   registerNetworkRoutes(app, shotRepo);
   registerMaintenanceRoutes(app, settingsRepo, maintenanceLog);
-<<<<<<< HEAD
   registerCareReminderRoutes(app, settingsRepo, maintenanceLog);
-  registerBestBrewRoutes(app, bestBrewRepo);
-=======
->>>>>>> origin/main
   registerDriveRoutes(
     app,
     flowHoldDriver,

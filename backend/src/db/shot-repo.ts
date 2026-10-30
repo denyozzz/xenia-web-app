@@ -582,12 +582,7 @@ export class SqliteShotRepo implements ShotRepo {
                 s.grinder_id, g.name AS grinder_name,
                 s.grind_setting, s.grinder_rpm, s.dose_g, s.tds_percent, s.profile_set_temp_c,
                 s.acidity, s.bitterness, s.extraction_under, s.extraction_over, s.channeling, s.channeling_severity,
-<<<<<<< HEAD
-                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note, s.dose_note,
-                CASE WHEN bb.shot_id IS NOT NULL THEN 1 ELSE 0 END AS is_best_brew
-=======
-                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note
->>>>>>> origin/main
+                s.vs_prev, s.vs_prev_shot_id, s.taste_tags, s.grind_note, s.dose_note
          FROM shot s
          LEFT JOIN profile p ON p.id = s.profile_id
          LEFT JOIN bean b ON b.id = s.bean_id

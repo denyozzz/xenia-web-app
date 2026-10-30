@@ -189,6 +189,10 @@ export default function App() {
   const openHistoryForRoasting = useCallback((beanId: number) => {
     nav.go({ view: "history", jump: true, history: { beanId } });
   }, [nav.go]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Eigene Aenderung (Patch 130): einzelnen Bezug aus der Bohnenseite im Verlauf oeffnen.
+  const openHistoryForShot = useCallback((shotId: number) => {
+    nav.go({ view: "history", jump: true, history: { shotId } });
+  }, [nav.go]); // eslint-disable-line react-hooks/exhaustive-deps
   const openHistoryForProfile = useCallback((profileId: number) => {
     nav.go({ view: "history", jump: true, history: { profileId } });
   }, [nav.go]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -842,6 +846,7 @@ export default function App() {
               <Beans
                 mobile={isMobile}
                 onOpenHistory={openHistoryForRoasting}
+                onOpenShot={openHistoryForShot}
                 selectedId={loc.coffeeId ?? null}
                 onSelectId={(id) => (id !== null ? nav.go({ view: "beans", coffeeId: id }) : nav.replace({ view: "beans" }))}
                 onBack={() => nav.back({ view: "beans" })}

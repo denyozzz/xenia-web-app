@@ -31,16 +31,13 @@ import type { ConnectionState } from "../hooks/useXeniaFrame.js";
 import type { ChartSample, EndedShotStages } from "../hooks/useShotSamples.js";
 import type { ChartXSettings } from "../hooks/useChartSettings.js";
 import { canStartShotFromState } from "../lib/shotReadiness.js";
-<<<<<<< HEAD
 import { startVariants, variantRunsInApp } from "@shared/profile-slots.js";
 import { useHiddenVariants } from "../hooks/useHiddenVariants.js";
 import { isLightRoast, variantHidden } from "../lib/hiddenVariants.js";
 import { useSayingPrefs } from "../sayingPrefs.js";
-=======
 import { dec } from "../lib/num.js";
 import { liveSollCurve, liveStageEntries, recordedStageEntries } from "@shared/live-stage.js";
 import { preinfusionArrivalGs } from "@shared/pump-curve.js";
->>>>>>> origin/main
 import type {
   DriveStage,
   LiveFrame,
@@ -1335,19 +1332,11 @@ export function Dashboard({
         </div>
       </div>
 
-<<<<<<< HEAD
       {/* ---- Mitte — füllt den verfügbaren Platz (flex) auf allen Breakpoints.
               ÄW-B: während eines Wartungslaufs ersetzt ein Banner + Countdown den
               Bereich (kein Bezug wird aufgezeichnet). Sonst: Verlauf, solange ein
               Bezug läuft oder noch nicht bewertet ist; danach die Favoriten. ---- */}
-      <div style={{ marginBottom: 12, flex: "1 1 0", minHeight: 0, position: "relative" }}>
-=======
-      {/* ---- Chart — fills the available vertical space (flex); handy quer eine
-              feste Hoehe und die Seite scrollt (.dash-chart in index.html).
-              ÄW-B: while a maintenance run is active the chart area is replaced by
-              a "maintenance running" banner + countdown (no shot is recorded). ---- */}
       <div className="dash-chart" style={{ marginBottom: 12, flex: "1 1 0", minHeight: 0, position: "relative" }}>
->>>>>>> origin/main
         {maintenance ? (
           <div
             style={{

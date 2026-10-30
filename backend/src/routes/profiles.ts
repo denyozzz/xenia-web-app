@@ -81,17 +81,13 @@ export const kindError = (kind: unknown, variants: ProfileCreate["variants"]): s
 };
 // Versuch ist ein Schalter — SQLite nimmt sonst jeden Wert.
 export const trialError = (isTrial: unknown): string | null =>
-<<<<<<< HEAD
-  (isTrial === undefined || typeof isTrial === "boolean" ? null : "isTrial muss true oder false sein.");
+  (isTrial === undefined || typeof isTrial === "boolean" ? null : L("isTrial muss true oder false sein.", "isTrial must be true or false."));
 export const beepError = (v: unknown): string | null => {
   if (v === undefined) return null;
   if (!Array.isArray(v) || v.length > 10) return "beepTimes: eine Liste mit höchstens 10 Zeiten.";
   if (v.some((n) => !Number.isInteger(n) || n < 0 || n > 3600)) return "beepTimes: ganze Sekunden von 0 bis 3600.";
   return null;
 };
-=======
-  (isTrial === undefined || typeof isTrial === "boolean" ? null : L("isTrial muss true oder false sein.", "isTrial must be true or false."));
->>>>>>> origin/main
 export const archivedError = (isArchived: unknown): string | null =>
   (isArchived === undefined || typeof isArchived === "boolean" ? null : L("isArchived muss true oder false sein.", "isArchived must be true or false."));
 export const fitError = (fit: unknown): string | null =>

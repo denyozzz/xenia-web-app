@@ -43,7 +43,7 @@ const shot = (p: { basket: number; note: string | null; grindNote: string | null
   ).run(prof, p.basket, (t += 1000), t + 500, bean, grinder, p.note, p.grindNote));
 
 const app = Fastify({ logger: false });
-registerShotRoutes(app, {} as never, new SqliteShotRepo(), {} as never, new SqliteBeanRepo(), new SqliteProfileRepo(), {} as never, {} as never, () => {}, {} as never);
+registerShotRoutes(app, {} as never, new SqliteShotRepo(), {} as never, new SqliteBeanRepo(), new SqliteProfileRepo(), {} as never, () => {}, {} as never);
 const lastNote = async (basketId: number) => {
   const q = new URLSearchParams({ beanId: String(bean), grinderId: String(grinder), profileId: String(prof), basketId: String(basketId) });
   return ((await app.inject({ method: "GET", url: `/api/shots/preshot-defaults?${q}` })).json() as { lastNote?: { notes: string } | null }).lastNote ?? null;

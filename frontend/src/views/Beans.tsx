@@ -807,6 +807,8 @@ interface BeansProps {
   /** F-B7: open the History view pre-filtered to a roasting (bean) id; the
    *  coffeeId lets the app offer a "back to this Sorte" affordance (SD-1). */
   onOpenHistory: (beanId: number, coffeeId: number) => void;
+  /** Eigene Aenderung (Patch 130): einen einzelnen Bezug im Verlauf oeffnen. */
+  onOpenShot: (shotId: number, coffeeId: number) => void;
   /** Selected coffee id (controlled by the app so the detail survives a trip to
    *  the filtered History and back — SD-1). */
   selectedId: number | null;
@@ -823,7 +825,7 @@ interface BeansProps {
   };
 }
 
-export function Beans({ mobile, onOpenHistory, selectedId, onSelectId, onBack, network }: BeansProps) {
+export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectId, onBack, network }: BeansProps) {
   const { t } = useTranslation();
   const api: UseCoffeesReturn = useCoffees();
   const { coffees, loading, error } = api;
