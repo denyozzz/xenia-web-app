@@ -1,5 +1,6 @@
 import { BeanDoses } from "./BeanDoses.js";
 import { RoasterInput } from "./RoasterInput.js";
+import { QrImportPanel, type QrResult } from "./QrImportPanel.js"; // Patch 141
 /**
  * CoffeeEditor — modal to create or edit a Coffee (Sorte) — §3.4b master data.
  * Master data only (name, roaster, origin, processing, roast level, brew type,
@@ -7,7 +8,7 @@ import { RoasterInput } from "./RoasterInput.js";
  */
 
 import { useState, useCallback, useEffect, KeyboardEvent } from "react";
-import { X, Plus, FileUp, Upload, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { X, Plus, FileUp, Upload, AlertTriangle, ChevronDown, ChevronRight, QrCode } from "lucide-react";
 import { Toggle } from "./Toggle.js";
 import { useTranslation } from "../i18n/index.js";
 import type {
@@ -77,7 +78,8 @@ function Segmented<T extends string>({ options, value, onChange }: {
 
 interface Props {
   coffee?: Coffee;
-  onSave: (data: CoffeeCreatePayload | CoffeeUpdate) => Promise<void>;
+  /** Patch 141: extra.qrImageCode = Foto des Roesters zu diesem Beanconqueror-Code als Bild uebernehmen. */
+  onSave: (data: CoffeeCreatePayload | CoffeeUpdate, extra?: { qrImageCode?: string }) => Promise<void>;
   onClose: () => void;
   /** §3i: matcher for the single-JSON-import duplicate warning (create mode only). */
   match?: (name: string, roaster: string | null) => Promise<MatchCandidate[]>;
@@ -152,6 +154,10 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
   const [importText, setImportText] = useState("");
   const [importErr, setImportErr] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  // Patch 141: Beanconqueror-QR-Import.
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrInfo, setQrInfo] = useState<{ qr: string; hasImage: boolean } | null>(null);
+  const [qrImage, setQrImage] = useState(true);
 
   const applyImport = useCallback((raw: string) => {
     setImportMsg(null);
@@ -204,6 +210,9 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
     else { setBrewType(""); ignored.push("brewType"); }
 
     setFlavorNotes(Array.isArray(o.flavorNotes) ? (o.flavorNotes as string[]).map((s) => s.trim()).filter(Boolean) : []);
+    // Patch 141: Arabica-Anteil (0-100, 10er-Schritte) mit uebernehmen.
+    if (typeof o.arabicaPct === "number" && o.arabicaPct >= 0 && o.arabicaPct <= 100) setArabicaPct(String(Math.round(o.arabicaPct / 10) * 10));
+    else setArabicaPct("");
 
     // §3i — optional firstRoasting block: prefill the "Erste Röstung" section.
     // Keys = exact BeanCreate field names. Section stays open + active either
@@ -320,7 +329,7 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
         };
         data.firstRoasting = firstRoasting;
       }
-      await onSave(data);
+      await onSave(data, qrInfo && qrInfo.hasImage && qrImage ? { qrImageCode: qrInfo.qr } : undefined);
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -329,7 +338,7 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
     }
   }, [name, roaster, country, region, farm, variety, processing, altMin, altMax,
       roastLevel, brewType, flavorNotes, notes, rating, favourite, prefProfile, arabicaPct, onSave, onClose, t,
-      isEdit, roastingOpen, rRoastDate, rBagSize, rPrice, rStatus, rActive]);
+      isEdit, roastingOpen, rRoastDate, rBagSize, rPrice, rStatus, rActive, qrInfo, qrImage]);
 
   const ROAST_SEG = [
     { value: "dark", label: t("beans.roastLevel.dark") },
@@ -392,6 +401,33 @@ export function CoffeeEditor({ coffee, onSave, onClose, match, onJumpToCoffee }:
               </div>
             )}
             {importMsg && <div style={{ color: C.grn, fontSize: 12, marginTop: 8 }}>{importMsg}</div>}
+            {/* Patch 141: QR-Code (Beanconqueror) */}
+            <div style={{ marginTop: 8 }}>
+              {!qrOpen ? (
+                <button type="button" onClick={() => { setQrOpen(true); setImportOpen(false); setImportMsg(null); }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "transparent", border: `1px dashed ${C.bdr2}`, borderRadius: 8, padding: "7px 12px", color: C.txtS, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  <QrCode size={15} />QR-Code (Beanconqueror)
+                </button>
+              ) : (
+                <QrImportPanel
+                  onCancel={() => setQrOpen(false)}
+                  onLoaded={(r: QrResult) => {
+                    applyImport(JSON.stringify(r.import));
+                    setQrInfo({ qr: r.qr, hasImage: r.hasImage });
+                    setQrImage(true);
+                    setQrOpen(false);
+                  }}
+                />
+              )}
+              {qrInfo && qrInfo.hasImage && !qrOpen && (
+                <div style={{ fontSize: 12, color: C.mut, marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", color: C.txtS }}>
+                    <input type="checkbox" checked={qrImage} onChange={(e) => setQrImage(e.target.checked)} />
+                    Foto des Rösters als Bild übernehmen
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

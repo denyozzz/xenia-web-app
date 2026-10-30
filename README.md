@@ -14,6 +14,7 @@ Updates des Originals werden regelmäßig übernommen.
 - **Ein/Aus:** mit oder ohne Dampfboiler, Restzeit bis Eco/Aus neben der Uhr, Belegung der Maschinentasten
 - **Pflege-Erinnerungen:** Rückspülen mit/ohne Fettlöser, Duschsieb; Wartungslauf wird erkannt
 - **Bohnenseite:** je Profil und Sieb aufklappbare Bezüge (Zeit Ist/Soll, Mahlgrad, Dosis)
+- **Beanconqueror-QR-Codes:** neue Bohne per Foto des QR-Codes auf der Tüte oder per Link anlegen. Die Angaben kommen vom Beanconqueror-Server – vielen Dank an den Entwickler von [Beanconqueror](https://beanconqueror.com) für die Erlaubnis!
 - **Tablet:** Vollbild-PWA, Batterieanzeige, optional Sprüche unter der Uhr, virtuelle Maschine zum Ausprobieren
 
 ## Installation (Docker)

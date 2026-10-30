@@ -26,6 +26,7 @@ import { registerShotRoutes } from "./routes/shots.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerBeanRoutes } from "./routes/beans.js";
 import { registerCoffeeRoutes } from "./routes/coffees.js";
+import { registerBeanconquerorRoutes } from "./routes/beanconqueror.js"; // Patch 141
 import { registerGrinderRoutes } from "./routes/grinders.js";
 import { registerNetworkRoutes } from "./routes/network.js";
 import { registerBasketRoutes } from "./routes/baskets.js";
@@ -214,6 +215,7 @@ async function start(): Promise<void> {
   registerSettingsRoutes(app, settingsRepo);
   registerBeanRoutes(app, beanRepo, coffeeRepo, settingsRepo);
   registerCoffeeRoutes(app, coffeeRepo, beanRepo);
+  registerBeanconquerorRoutes(app); // Patch 141: QR-Import
   registerGrinderRoutes(app, grinderRepo);
   registerBasketRoutes(app, basketRepo);
   registerBasketVariantRoutes(app, basketRepo, () => hub.broadcastProfilesChanged());

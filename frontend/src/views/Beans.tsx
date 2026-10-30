@@ -1076,8 +1076,20 @@ export function Beans({ mobile, onOpenHistory, onOpenShot, selectedId, onSelectI
           coffee={coffeeEditor === "new" ? undefined : coffeeEditor}
           match={coffeeEditor === "new" ? api.match : undefined}
           onJumpToCoffee={(id) => { setCoffeeEditor(null); onSelectId(id); }}
-          onSave={async (data) => {
-            if (coffeeEditor === "new") await api.createCoffee(data as Parameters<typeof api.createCoffee>[0]);
+          onSave={async (data, extra) => {
+            if (coffeeEditor === "new") {
+              const created = await api.createCoffee(data as Parameters<typeof api.createCoffee>[0]);
+              // Patch 141: Foto des Roesters (Beanconqueror) als Bild der neuen Sorte.
+              if (extra?.qrImageCode && created?.id != null) {
+                try {
+                  const r = await fetch(`/api/beanconqueror/qr-image?code=${encodeURIComponent(extra.qrImageCode)}`);
+                  if (r.ok) {
+                    const blob = await r.blob();
+                    await handleImagePick(created.id, new File([blob], "beanconqueror", { type: blob.type || "image/jpeg" }));
+                  }
+                } catch { /* ohne Bild */ }
+              }
+            }
             else await api.updateCoffee(coffeeEditor.id, data);
           }}
           onClose={() => setCoffeeEditor(null)}
