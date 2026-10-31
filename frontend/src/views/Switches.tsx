@@ -1,26 +1,8 @@
 import { useEffect, useState } from "react";
+import { RECIPE_LINKS, SWITCH_GROUPS } from "../switchConfig.js";
+import type { SwitchRow } from "../switchConfig.js";
 
 type Opt = { id: number; label: string };
-type Row = { label: string; key: string };
-const LEFT: Row[][] = [[
-  { label: "Links kurz drücken", key: "SWITCH_SET_LEFT_LEFT_0" },
-  { label: "Links lang drücken", key: "SWITCH_SET_LEFT_LEFT_1" },
-]];
-const RIGHT: Row[][] = [
-  [
-    { label: "Links kurz drücken", key: "SWITCH_SET_RIGHT_LEFT_0" },
-    { label: "Links lang drücken", key: "SWITCH_SET_RIGHT_LEFT_1" },
-  ],
-  [
-    { label: "Rechts kurz drücken", key: "SWITCH_SET_RIGHT_RIGHT_0" },
-    { label: "Rechts lang drücken", key: "SWITCH_SET_RIGHT_RIGHT_1" },
-  ],
-];
-const LINKS = [
-  { label: "Kaffeezentrale", url: "https://www.kaffeezentrale.de/kaffeerezepte" },
-  { label: "Rauwolf", url: "https://rauwolf-coffee.at/kaffeespezialitaeten/italienische-kaffeespezialitaeten/" },
-  { label: "Espresso International", url: "https://www.espresso-international.de/blogs/kaffeewissen/italienische-kaffeespezialitaeten" },
-];
 
 export function Switches() {
   const [values, setValues] = useState<Record<string, number> | null>(null);
@@ -53,7 +35,7 @@ export function Switches() {
 
   const box = { border: "1px solid rgba(128,128,128,0.4)", borderRadius: 8, padding: 16, marginBottom: 16 } as const;
 
-  const group = (title: string, parts: Row[][], last = false) => (
+  const group = (title: string, parts: SwitchRow[][], last = false) => (
     <div style={last ? { ...box, marginBottom: 0 } : box}>
       <h3 style={{ marginTop: 0, marginBottom: 28, fontSize: 28, fontWeight: 800 }}>{title}</h3>
       {parts.map((rows, i) => (
@@ -82,10 +64,10 @@ export function Switches() {
         <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "stretch" }}>
             <div style={{ flex: "1 1 320px", minWidth: 280, display: "flex", flexDirection: "column" }}>
-              {group("Linker Schalter", LEFT)}
+              {group(SWITCH_GROUPS[0].title, SWITCH_GROUPS[0].parts)}
               <div style={{ ...box, padding: 10, marginBottom: 12 }}>
                 <h3 style={{ marginTop: 0, marginBottom: 6, fontSize: 14, fontWeight: 700 }}>Rezepte</h3>
-                {LINKS.map((l) => (
+                {RECIPE_LINKS.map((l) => (
                   <div key={l.url} style={{ marginBottom: 3, fontSize: 13 }}>
                     <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>
                       {l.label}
@@ -101,7 +83,7 @@ export function Switches() {
               </div>
             </div>
             <div style={{ flex: "1 1 320px", minWidth: 280 }}>
-              {group("Rechter Schalter", RIGHT, true)}
+              {group(SWITCH_GROUPS[1].title, SWITCH_GROUPS[1].parts, true)}
             </div>
           </div>
         </>
