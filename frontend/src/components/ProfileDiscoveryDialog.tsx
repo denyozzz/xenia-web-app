@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Search } from "lucide-react";
 import { Modal, modalText, modalTitle } from "./ScriptInsertMenu.js";
 import { useCoffees } from "../hooks/useCoffees.js";
+import { useGrinders } from "../hooks/useGrinders.js";
 import theme from "../theme.js";
 
 const C = theme;
+const SHOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROAST_SUGGESTIONS = [
   { key: "light", label: "Hell", profiles: ["Blooming", "Allongé", "Turbo", "Extractamundo"] },
   { key: "medium", label: "Mittel", profiles: ["Adaptive", "Extractamundo", "Gentle"] },
@@ -76,6 +78,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
   const [profile, setProfile] = useState("");
   const [roaster, setRoaster] = useState("");
   const [bean, setBean] = useState("");
+  const [grinder, setGrinder] = useState("");
   const [minimum, setMinimum] = useState("0");
   const [ratioFilter, setRatioFilter] = useState<RatioFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("rating");
@@ -88,6 +91,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
   const [error, setError] = useState("");
   const busy = useRef(false);
   const { coffees, loading: coffeesLoading } = useCoffees();
+  const { grinders } = useGrinders();
   const activeCoffees = coffees
     .filter((coffee) => coffee.activeRoasting !== null)
     .sort((a, b) => Number(b.favourite) - Number(a.favourite) || a.name.localeCompare(b.name));
@@ -104,7 +108,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
     return sortOrder === "newest" ? newest(b) - newest(a) || rating : rating || newest(b) - newest(a);
   });
 
-  const search = async (targetPage: number, profileValue = profile, roasterValue = roaster, beanValue = bean, minValue = minimum) => {
+  const search = async (targetPage: number, profileValue = profile, roasterValue = roaster, beanValue = bean, minValue = minimum, grinderValue = grinder) => {
     if (busy.current) return;
     busy.current = true;
     setLoading(true);
@@ -114,6 +118,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
     if (profileValue.trim()) params.set("profile_title", profileValue.trim());
     if (roasterValue.trim()) params.set("bean_brand", roasterValue.trim());
     if (beanValue.trim()) params.set("bean_type", beanValue.trim());
+    if (grinderValue.trim()) params.set("grinder_model", grinderValue.trim());
     if (Number(minValue) > 0) params.set("min_enjoyment", minValue);
     try {
       const response = await fetch(`/api/community/shots?${params}`);
@@ -148,7 +153,6 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
 
   const format = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(1);
   const infoLine = (shot: CommunityShot) => [
-    shot.user ? `von ${shot.user}` : null,
     shot.roaster,
     shot.bean,
     shot.roast,
@@ -170,6 +174,10 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
         <input aria-label="Profil" placeholder="Profil, z. B. Blooming" value={profile} onChange={(event) => setProfile(event.target.value)} style={{ ...input, gridColumn: "1 / -1", width: "100%" }} />
         <input aria-label="Röster" placeholder="Röster (optional)" value={roaster} onChange={(event) => setRoaster(event.target.value)} style={{ width: "100%", ...input }} />
         <input aria-label="Bohne (optional)" placeholder="Bohne (optional)" value={bean} onChange={(event) => setBean(event.target.value)} style={{ width: "100%", ...input }} />
+        <select aria-label="Mühle (optional)" value={grinder} onChange={(event) => setGrinder(event.target.value)} style={{ width: "100%", ...input, gridColumn: "1 / -1" }}>
+          <option value="">Alle Mühlen</option>
+          {grinders.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+        </select>
         <select aria-label="Bewertung ab" value={minimum} onChange={(event) => setMinimum(event.target.value)} style={{ width: "100%", ...input, gridColumn: "1 / -1" }}>
           <option value="0">Alle Bewertungen</option>
           <option value="70">Bewertung ab 70</option>
@@ -269,7 +277,16 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
               </span>
             )}
             <div style={{ color: C.txt, fontSize: 14, fontWeight: 600, overflowWrap: "anywhere" }}>{shot.title}</div>
-            {infoLine(shot) && <div style={{ marginTop: 2, color: C.mut, fontSize: 11, lineHeight: 1.4 }}>{infoLine(shot)}</div>}
+            {(shot.user || infoLine(shot)) && (
+              <div style={{ marginTop: 2, color: C.mut, fontSize: 11, lineHeight: 1.4 }}>
+                {shot.user && (SHOT_ID.test(shot.id) ? (
+                  <a href={`https://visualizer.coffee/shots/${shot.id}`} target="_blank" rel="noopener noreferrer" style={{ color: C.mut, textDecoration: "underline" }}>
+                    von {shot.user}
+                  </a>
+                ) : <span>von {shot.user}</span>)}
+                {shot.user && infoLine(shot) ? " · " : ""}{infoLine(shot)}
+              </div>
+            )}
             {statsLine(shot) && <div style={{ marginTop: 5, color: C.txtS, fontSize: 12 }}>{statsLine(shot)}</div>}
             {shot.moreShots > 0 && <div style={{ marginTop: 4, color: C.mut, fontSize: 11 }}>+{shot.moreShots} weitere Bezüge</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
@@ -285,6 +302,9 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
           {loading ? "Lade …" : "Mehr laden"}
         </button>
       )}
+      <div style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${C.bdr}`, color: C.mut, fontSize: 11, lineHeight: 1.4, textAlign: "center" }}>
+        Profile und Bezüge von <a href="https://visualizer.coffee" target="_blank" rel="noopener noreferrer" style={{ color: C.mut, textDecoration: "underline" }}>visualizer.coffee</a> – öffentlich geteilt von der Community.
+      </div>
     </Modal>
   );
 }

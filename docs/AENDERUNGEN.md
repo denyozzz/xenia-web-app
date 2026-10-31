@@ -3,8 +3,8 @@
 Fork von [fhold/xenia-web-app](https://github.com/fhold/xenia-web-app), Stand des Originals: v0.2.0.
 
 ## 2026-10-31
-- **Profile entdecken:** Auf der Profilseite öffentliche Bezüge auf visualizer.coffee mit Profil-, Röster-, Bohnen- und Bewertungsfilter suchen und Decent-Profile über den vorhandenen Import übernehmen. Aktive eigene Bohnen, nach Röstgrad gruppierte Schnellknöpfe, lokale Ratiofilter und Sortierung erleichtern die Auswahl; nicht importierbare Bezüge werden dauerhaft gemerkt und ausgeblendet. Gaggiuino-Profile werden verständlich abgelehnt. Vorlage: [Xenios](https://github.com/TimS1998/Xenios) (Apache-2.0).
-  Dateien: .vscode/settings.json, backend/src/index.ts, backend/src/routes/community.ts, backend/test/community.test.ts, frontend/src/components/ProfileDiscoveryDialog.tsx, frontend/src/views/Profiles.tsx
+- **Profile entdecken:** Auf der Profilseite öffentliche Bezüge auf visualizer.coffee mit Profil-, Röster-, Bohnen- und Bewertungsfilter suchen und Decent-Profile über den vorhandenen Import übernehmen. Aktive eigene Bohnen, nach Röstgrad gruppierte Schnellknöpfe, lokale Ratiofilter und Sortierung erleichtern die Auswahl; nicht importierbare Bezüge werden dauerhaft gemerkt und ausgeblendet. Gaggiuino-Profile werden verständlich abgelehnt. Suche angelehnt an [Xenios](https://github.com/TimS1998/Xenios) (Apache-2.0; LICENSE nennt keinen Copyright-Inhaber).
+  Dateien: .vscode/settings.json, README.md, backend/src/index.ts, backend/src/routes/community.ts, backend/test/community.test.ts, frontend/src/components/ProfileDiscoveryDialog.tsx, frontend/src/views/Profiles.tsx
 - **Mond-Knopf öffnet Info-Fenster:** Hell/Dunkel umschalten, Schalterbelegung der Maschine (nur Anzeige) und Rezept-Links; Titel verlinkt auf die Weboberfläche der Maschine.
   Dateien: frontend/src/components/ThemeFab.tsx, frontend/src/switchConfig.ts, frontend/src/views/Switches.tsx
 

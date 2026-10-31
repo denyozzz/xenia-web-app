@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { SettingsRepo } from "../db/settings-repo.js";
 
+/**
+ * Teile angelehnt an Xenios (server/src/community.js); die LICENSE nennt keinen Copyright-Inhaber,
+ * Apache License 2.0, https://github.com/TimS1998/Xenios – angepasst für diesen Fork (TypeScript,
+ * Fastify, Import über den Decent-Übersetzer).
+ */
 const BASE = "https://visualizer.coffee";
 const MAX_BODY_BYTES = 3 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 100;
@@ -176,6 +181,7 @@ export function registerCommunityRoutes(
       ["profile_title", "profile_title"],
       ["bean_brand", "bean_brand"],
       ["bean_type", "bean_type"],
+      ["grinder_model", "grinder_model"],
     ]) {
       const value = query[key];
       if (typeof value === "string" && value.trim()) params.set(upstreamKey, value.trim().slice(0, 60));

@@ -50,7 +50,7 @@ test("Community-Suche bildet Filter und Treffer ab und cached die Antwort", asyn
     calls.push({ url: String(input), init });
     return Response.json({ data: [shot] });
   });
-  const url = "/api/community/shots?page=2&profile_title=Blooming&bean_brand=R%C3%B6stwerk&bean_type=Kenia&min_enjoyment=80";
+  const url = "/api/community/shots?page=2&profile_title=Blooming&bean_brand=R%C3%B6stwerk&bean_type=Kenia&grinder_model=%20%20DF64%20%20&min_enjoyment=80";
   const first = await app.inject({ url });
   const second = await app.inject({ url });
 
@@ -74,7 +74,7 @@ test("Community-Suche bildet Filter und Treffer ab und cached die Antwort", asyn
   const upstream = new URL(calls[0]!.url);
   assert.equal(upstream.origin + upstream.pathname, "https://visualizer.coffee/api/shots");
   assert.deepEqual(Object.fromEntries(upstream.searchParams), {
-    items: "20", page: "2", full: "true", profile_title: "Blooming", bean_brand: "Röstwerk", bean_type: "Kenia", min_enjoyment: "80",
+    items: "20", page: "2", full: "true", profile_title: "Blooming", bean_brand: "Röstwerk", bean_type: "Kenia", grinder_model: "DF64", min_enjoyment: "80",
   });
   assert.equal(calls[0]!.init?.redirect, "error");
   assert.equal(new Headers(calls[0]!.init?.headers).get("User-Agent"), "Xenia-Web-App-Fork (+https://github.com/denyozzz/xenia-web-app)");
@@ -196,4 +196,16 @@ test("Cache behält höchstens 100 verschiedene Einträge", async () => {
   await app.inject({ url: "/api/community/shots?profile_title=0" });
 
   assert.equal(calls, 102, "der älteste Eintrag wurde beim Überschreiten des Limits entfernt");
+});
+
+test("Community-Suche begrenzt grinder_model auf 60 Zeichen", async () => {
+  let upstreamUrl = "";
+  const app = makeApp(async (input) => {
+    upstreamUrl = String(input);
+    return Response.json({ data: [] });
+  });
+  const model = "M".repeat(61);
+  await app.inject({ url: `/api/community/shots?grinder_model=${model}` });
+
+  assert.equal(new URL(upstreamUrl).searchParams.get("grinder_model")?.length, 60);
 });
