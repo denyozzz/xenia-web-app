@@ -5,7 +5,11 @@ import { useCoffees } from "../hooks/useCoffees.js";
 import theme from "../theme.js";
 
 const C = theme;
-const SUGGESTIONS = ["Blooming", "Londinium", "Adaptive", "Allongé", "Extractamundo", "Gentle", "Cremina", "Turbo"];
+const ROAST_SUGGESTIONS = [
+  { key: "light", label: "Hell", profiles: ["Blooming", "Allongé", "Turbo", "Extractamundo"] },
+  { key: "medium", label: "Mittel", profiles: ["Adaptive", "Extractamundo", "Gentle"] },
+  { key: "dark", label: "Dunkel", profiles: ["Londinium", "Cremina", "Gentle"] },
+] as const;
 
 type CommunityShot = {
   id: string;
@@ -25,6 +29,14 @@ type SearchResult = { items: CommunityShot[]; page: number; more: boolean };
 type GroupedShot = CommunityShot & { moreShots: number };
 type RatioFilter = "all" | "short" | "normal" | "long";
 type SortOrder = "rating" | "newest";
+type RoastGroup = typeof ROAST_SUGGESTIONS[number]["key"];
+
+function roastGroup(level: string | null): RoastGroup | null {
+  if (level === "light" || level === "light-medium") return "light";
+  if (level === "medium" || level === "medium-dark") return "medium";
+  if (level === "dark") return "dark";
+  return null;
+}
 
 function groupShots(shots: CommunityShot[]): GroupedShot[] {
   const groups = new Map<string, { best: CommunityShot; ids: Set<string> }>();
@@ -67,6 +79,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
   const [minimum, setMinimum] = useState("0");
   const [ratioFilter, setRatioFilter] = useState<RatioFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("rating");
+  const [selectedRoastGroup, setSelectedRoastGroup] = useState<RoastGroup | null>(null);
   const [shots, setShots] = useState<CommunityShot[]>([]);
   const [page, setPage] = useState(1);
   const [more, setMore] = useState(false);
@@ -168,12 +181,23 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
         </button>
       </form>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {SUGGESTIONS.map((suggestion) => (
-          <button key={suggestion} type="button" onClick={() => { setProfile(suggestion); void search(1, suggestion); }} style={button}>
-            {suggestion}
-          </button>
-        ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+        {ROAST_SUGGESTIONS.map((group) => {
+          const highlighted = selectedRoastGroup === group.key;
+          return (
+            <section
+              key={group.key}
+              style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, padding: "6px 8px", borderRadius: 8, background: highlighted ? C.accG2 : C.accG, border: `1px solid ${highlighted ? C.accB : C.bdr}` }}
+            >
+              <span style={{ minWidth: 48, color: highlighted ? C.acc : C.mut, fontSize: 11, fontWeight: 700 }}>{group.label}</span>
+              {group.profiles.map((suggestion) => (
+                <button key={suggestion} type="button" onClick={() => { setProfile(suggestion); void search(1, suggestion); }} style={button}>
+                  {suggestion}
+                </button>
+              ))}
+            </section>
+          );
+        })}
       </div>
 
       <section style={{ marginBottom: 14 }}>
@@ -192,6 +216,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
                   const nextRoaster = coffee.roaster ?? "";
                   setRoaster(nextRoaster);
                   setBean(coffee.name);
+                  setSelectedRoastGroup(roastGroup(coffee.roastLevel));
                   void search(1, profile, nextRoaster, coffee.name, minimum);
                 }}
                 style={button}
