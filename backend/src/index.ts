@@ -22,6 +22,7 @@ import { registerVirtualMachineRoute } from "./routes/virtual-machine.js";
 import { registerScriptRoutes } from "./routes/scripts.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
 import { registerProfileImportRoutes } from "./routes/profile-import.js";
+import { registerCommunityRoutes } from "./routes/community.js";
 import { registerShotRoutes } from "./routes/shots.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerBeanRoutes } from "./routes/beans.js";
@@ -211,6 +212,7 @@ async function start(): Promise<void> {
   );
   registerProfileRoutes(app, profileRepo, scriptRepo, () => hub.broadcastProfilesChanged());
   registerProfileImportRoutes(app, client, scriptRepo, profileRepo, recorder, () => hub.getLastFrame(), () => hub.broadcastProfilesChanged());
+  registerCommunityRoutes(app, settingsRepo);
   registerShotRoutes(app, client, shotRepo, recorder, beanRepo, profileRepo, scriptRepo, (shot) => hub.broadcastShotUpdated(shot), flowHoldDriver, settingsRepo);
   registerSettingsRoutes(app, settingsRepo);
   registerBeanRoutes(app, beanRepo, coffeeRepo, settingsRepo);

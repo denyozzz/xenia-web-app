@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, RefreshCw, Star, Copy, Download, Upload, MoreHorizontal, History as HistoryIcon, GripVertical, FlaskConical, Archive, ArchiveRestore } from "lucide-react";
+import { Pencil, Trash2, Plus, RefreshCw, Star, Copy, Download, Upload, Search, MoreHorizontal, History as HistoryIcon, GripVertical, FlaskConical, Archive, ArchiveRestore } from "lucide-react";
 import type { Basket, Profile, ProfileCreate, ProfileFit, ProfileVariant, XeniaScript } from "@shared/types.js";
 import { PROFILE_FITS } from "@shared/types.js";
 import { effectiveCategory } from "@shared/bbw-arming.js";
@@ -24,6 +24,7 @@ import { useBaskets } from "../hooks/useBaskets.js";
 import type { ShotFilters } from "../hooks/useShots.js";
 import { Modal, modalTitle, modalText } from "../components/ScriptInsertMenu.js";
 import { ProfileImportDialog } from "../components/ProfileImportDialog.js";
+import { ProfileDiscoveryDialog } from "../components/ProfileDiscoveryDialog.js";
 import { HoverTip } from "../components/HoverTip.js";
 import { useTranslation } from "../i18n/index.js";
 
@@ -185,6 +186,7 @@ export function Profiles({
   const [deleting, setDeleting] = useState<{ profile: Profile; own: XeniaScript[]; pick: Set<number> } | null>(null);
   // Profil importieren: der Text der gewaehlten Datei, solange der Dialog offen ist.
   const [importText, setImportText] = useState<string | null>(null);
+  const [discoveringProfiles, setDiscoveringProfiles] = useState(false);
   const onImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -567,6 +569,12 @@ export function Profiles({
           onOpenProfile={(id) => { setImportText(null); onOpenEditor(id); }}
         />
       )}
+      {discoveringProfiles && (
+        <ProfileDiscoveryDialog
+          onClose={() => setDiscoveringProfiles(false)}
+          onImport={(json) => { setDiscoveringProfiles(false); setImportText(json); }}
+        />
+      )}
       {deleting && (
         <Modal onClose={() => setDeleting(null)}>
           <h3 style={modalTitle}>{t("profileList.list.deleteDialog.title", { name: deleting.profile.name })}</h3>
@@ -607,7 +615,7 @@ export function Profiles({
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <div style={{ ...LABEL, ...(mobile ? { flex: 1 } : {}) }}>{t("profileList.list.header")}</div>
         {!mobile && fitChips}
         {!mobile && <span style={{ flex: 1 }} />}
@@ -628,6 +636,9 @@ export function Profiles({
             <input type="file" accept="application/json,.json,.tcl,text/plain" onChange={onImportFile} style={{ display: "none" }} />
           </label>
         </HoverTip>
+        <button onClick={() => setDiscoveringProfiles(true)} style={headerBtn}>
+          <Search size={14} /> Profile entdecken
+        </button>
         <button onClick={() => { onOpenEditor("new"); }} style={headerBtn}>
           <Plus size={14} /> {t("profileList.list.newProfile")}
         </button>
