@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Search } from "lucide-react";
+import { Download, RotateCcw, Search } from "lucide-react";
 import { Modal, modalText, modalTitle } from "./ScriptInsertMenu.js";
 import { useCoffees } from "../hooks/useCoffees.js";
 import { useGrinders } from "../hooks/useGrinders.js";
@@ -138,6 +138,19 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
 
   useEffect(() => { void search(1, "", "", "", "0"); }, []);
 
+  const clearFilters = () => {
+    setProfile("");
+    setRoaster("");
+    setBean("");
+    setSelectedCoffeeId(null);
+    setGrinder("");
+    setMinimum("0");
+    setRatioFilter("all");
+    setSortOrder("rating");
+    setSelectedRoastGroup(null);
+    void search(1, "", "", "", "0", "");
+  };
+
   const importShot = async (id: string) => {
     setImportingId(id);
     setError("");
@@ -185,9 +198,14 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
           <option value="80">Bewertung ab 80</option>
           <option value="90">Bewertung ab 90</option>
         </select>
-        <button type="submit" disabled={loading} style={{ ...button, gridColumn: "1 / -1", width: "min(100%, 244px)", minHeight: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: C.acc, borderColor: C.acc, color: C.onAcc, fontSize: 13, fontWeight: 600 }}>
-          <Search size={16} /> Suchen
-        </button>
+        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <button type="submit" disabled={loading} style={{ ...button, width: "min(100%, 244px)", minHeight: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: C.acc, borderColor: C.acc, color: C.onAcc, fontSize: 13, fontWeight: 600 }}>
+            <Search size={16} /> Suchen
+          </button>
+          <button type="button" disabled={loading} onClick={clearFilters} style={{ ...button, minHeight: 42, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <RotateCcw size={15} /> Suchfilter löschen
+          </button>
+        </div>
       </form>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
