@@ -22,3 +22,4 @@
 - Server-Routen (API): backend/src/routes/*.ts, Start in backend/src/index.ts
 - Pflege-Erinnerungen: backend/src/routes/care-reminders.ts, components/CareReminderSettings.tsx
 - Nach jeder fertigen Änderung oben in docs/AENDERUNGEN.md einen Eintrag ergänzen: Datum, ein Satz was sich für den Nutzer ändert, betroffene Dateien. Keine privaten Adressen oder Namen.
+- Hintergründe, Entscheidungen und verworfene Ideen stehen in docs/AENDERUNGEN-ausfuehrlich.txt – vor größeren Änderungen dort nachlesen.
