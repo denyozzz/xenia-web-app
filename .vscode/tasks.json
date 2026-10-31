@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Mock-Maschine",
+      "type": "shell",
+      "command": "npm run mock",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "App-Server",
+      "type": "shell",
+      "command": "npx tsx watch src/index.ts",
+      "options": { "cwd": "${workspaceFolder}/backend", "env": { "MACHINE_IP": "127.0.0.1:3099" } },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Oberfläche",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/frontend", "env": { "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": "${env:XENIA_DEV_HOST}" } },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Testserver starten",
+      "dependsOn": ["Mock-Maschine", "App-Server", "Oberfläche"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}
