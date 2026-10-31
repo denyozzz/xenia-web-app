@@ -78,6 +78,7 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
   const [profile, setProfile] = useState("");
   const [roaster, setRoaster] = useState("");
   const [bean, setBean] = useState("");
+  const [selectedCoffeeId, setSelectedCoffeeId] = useState<number | null>(null);
   const [grinder, setGrinder] = useState("");
   const [minimum, setMinimum] = useState("0");
   const [ratioFilter, setRatioFilter] = useState<RatioFilter>("all");
@@ -172,8 +173,8 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
         style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8, padding: 12, background: C.card, borderRadius: 8, marginBottom: 12 }}
       >
         <input aria-label="Profil" placeholder="Profil, z. B. Blooming" value={profile} onChange={(event) => setProfile(event.target.value)} style={{ ...input, gridColumn: "1 / -1", width: "100%" }} />
-        <input aria-label="Röster" placeholder="Röster (optional)" value={roaster} onChange={(event) => setRoaster(event.target.value)} style={{ width: "100%", ...input }} />
-        <input aria-label="Bohne (optional)" placeholder="Bohne (optional)" value={bean} onChange={(event) => setBean(event.target.value)} style={{ width: "100%", ...input }} />
+        <input aria-label="Röster" placeholder="Röster (optional)" value={roaster} onChange={(event) => { setRoaster(event.target.value); setSelectedCoffeeId(null); }} style={{ width: "100%", ...input }} />
+        <input aria-label="Bohne (optional)" placeholder="Bohne (optional)" value={bean} onChange={(event) => { setBean(event.target.value); setSelectedCoffeeId(null); }} style={{ width: "100%", ...input }} />
         <select aria-label="Mühle (optional)" value={grinder} onChange={(event) => setGrinder(event.target.value)} style={{ width: "100%", ...input, gridColumn: "1 / -1" }}>
           <option value="">Alle Mühlen</option>
           {grinders.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
@@ -198,11 +199,20 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
               style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, padding: "6px 8px", borderRadius: 8, background: highlighted ? C.accG2 : C.accG, border: `1px solid ${highlighted ? C.accB : C.bdr}` }}
             >
               <span style={{ minWidth: 48, color: highlighted ? C.acc : C.mut, fontSize: 11, fontWeight: 700 }}>{group.label}</span>
-              {group.profiles.map((suggestion) => (
-                <button key={suggestion} type="button" onClick={() => { setProfile(suggestion); void search(1, suggestion); }} style={button}>
-                  {suggestion}
-                </button>
-              ))}
+              {group.profiles.map((suggestion) => {
+                const selected = profile.trim().toLocaleLowerCase() === suggestion.toLocaleLowerCase();
+                return (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => { setProfile(suggestion); void search(1, suggestion); }}
+                    style={{ ...button, background: selected ? C.accG2 : "transparent", borderColor: selected ? C.accB : C.bdr2, color: selected ? C.acc : C.txtS, fontWeight: selected ? 600 : 400 }}
+                  >
+                    {suggestion}
+                  </button>
+                );
+              })}
             </section>
           );
         })}
@@ -218,16 +228,18 @@ export function ProfileDiscoveryDialog({ onClose, onImport }: { onClose: () => v
               <button
                 key={coffee.id}
                 type="button"
+                aria-pressed={selectedCoffeeId === coffee.id}
                 title={[coffee.roaster, coffee.name].filter(Boolean).join(" · ")}
                 disabled={loading}
                 onClick={() => {
                   const nextRoaster = coffee.roaster ?? "";
+                  setSelectedCoffeeId(coffee.id);
                   setRoaster(nextRoaster);
                   setBean(coffee.name);
                   setSelectedRoastGroup(roastGroup(coffee.roastLevel));
                   void search(1, profile, nextRoaster, coffee.name, minimum);
                 }}
-                style={button}
+                style={{ ...button, background: selectedCoffeeId === coffee.id ? C.accG2 : "transparent", borderColor: selectedCoffeeId === coffee.id ? C.accB : C.bdr2, color: selectedCoffeeId === coffee.id ? C.acc : C.txtS, fontWeight: selectedCoffeeId === coffee.id ? 600 : 400 }}
               >
                 {coffee.name}
               </button>
